@@ -142,30 +142,35 @@ def download_kaggle_dataset_and_select_images(dataset_name, destination_dir, max
 
     print(f"{len(selected_images)} images copied to {destination_dir}.")
 
-
-def manage_raw_data(dataset_name, raw_data_dir):
-    raw_dir = raw_data_dir / dataset_name
+def manage_dataset_data(dataset_name, dataset_dir):
+    dataset_dir = Path(dataset_dir) / dataset_name
     cwd = Path.cwd()
 
     try:
-        relative_path = raw_dir.relative_to(cwd)
+        relative_path = dataset_dir.relative_to(cwd)
     except ValueError:
-        relative_path = raw_dir
+        relative_path = dataset_dir
 
-    if not raw_dir.exists() or not any(raw_dir.glob("**/*")):
-        print(f"Directory {relative_path} is empty. Fetching new data...")
-        return True
+    # Verifică dacă directorul există
+    if not dataset_dir.exists():
+        print(f"Directory {relative_path} does not exist. It will be created and populated with new data.")
+        return "clean"  # Directorul nu există, trebuie creat și populat
 
-    images = [f for f in raw_dir.glob("**/*") if f.suffix.lower() in ['.jpg', '.jpeg', '.png']]
+    # Verifică dacă directorul conține imagini valide
+    images = [f for f in dataset_dir.glob("**/*") if f.suffix.lower() in ['.jpg', '.jpeg', '.png']]
     if not images:
-        print(f"Directory {relative_path} contains no images. Fetching new data...")
-        return True
+        print(f"Directory {relative_path} contains no valid images. It will be populated with new data.")
+        return "clean"  # Directorul este gol, trebuie populat
 
-    choice = input(f"Directory {relative_path} contains images. Do you want to update? (yes/no): ").lower()
-    return choice == 'yes'
+    # Dacă există imagini valide, întreabă utilizatorul cum să procedeze
+    choice = input(f"Directory {relative_path} contains images. Do you want to:\n"
+                   "1. Keep existing images and add new ones (type 'keep')\n"
+                   "2. Remove existing images and replace with new ones (type 'clean')\n"
+                   "Choice: ").strip().lower()
+    return choice
 
 
-def load_dataset(dataset_choice, base_path, max_images=500, clean_existing=True):
+def load_dataset(dataset_choice, base_path, max_images=500):
     raw_data_dir, processed_data_dir = create_directory_structure(base_path)
 
     datasets = {
@@ -179,20 +184,26 @@ def load_dataset(dataset_choice, base_path, max_images=500, clean_existing=True)
         print(f"Invalid dataset choice: {dataset_choice}.")
         return
 
+    dataset_dir = processed_data_dir / dataset_choice
+    user_choice = manage_dataset_data(dataset_choice, processed_data_dir)
+
+    # Golește directorul dacă utilizatorul alege să-l curățe
+    if user_choice == "clean":
+        if dataset_dir.exists():
+            shutil.rmtree(dataset_dir)
+        dataset_dir.mkdir(parents=True, exist_ok=True)
+
+    # Procedează cu procesarea datelor
     if dataset_choice == "CelebA":
         zip_path = datasets["CelebA"]
-        if manage_raw_data("img_align_celeba", raw_data_dir):
-            extract_zip_and_select_images(zip_path, processed_data_dir / dataset_choice, max_images)
+        extract_zip_and_select_images(zip_path, dataset_dir, max_images)
     elif dataset_choice == "LFW":
         tgz_path = datasets["LFW"]
-        if manage_raw_data("lfw", raw_data_dir):
-            extract_tgz_and_select_images(tgz_path, processed_data_dir / dataset_choice, max_images)
+        extract_tgz_and_select_images(tgz_path, dataset_dir, max_images)
     elif dataset_choice == "FER-2013":
-        if manage_raw_data("msambare_fer2013", raw_data_dir):
-            download_kaggle_dataset_and_select_images("msambare/fer2013", processed_data_dir / dataset_choice,
-                                                      max_images)
+        download_kaggle_dataset_and_select_images("msambare/fer2013", dataset_dir, max_images)
     elif dataset_choice == "Custom":
-        select_images(datasets["Custom"], processed_data_dir / dataset_choice, max_images)
+        select_images(datasets["Custom"], dataset_dir, max_images)
 
 
 if __name__ == "__main__":
