@@ -1,10 +1,8 @@
-import os
 import shutil
 from pathlib import Path
 import random
 import zipfile
 import tarfile
-import requests
 import kagglehub
 
 
@@ -16,154 +14,95 @@ def create_directory_structure(base_path):
     return raw_data_dir, processed_data_dir
 
 
-def clean_directory(directory_path, prompt=True):
-    relative_path = directory_path.relative_to(Path.cwd())
-    if directory_path.exists() and any(directory_path.iterdir()):
-        if prompt:
-            choice = input(f"Directory {relative_path} is not empty. Do you want to clean it? (yes/no): ").lower()
-        else:
-            choice = 'yes'
-        if choice == 'yes':
-            shutil.rmtree(directory_path)
-            directory_path.mkdir(parents=True, exist_ok=True)
-            print(f"Directory {relative_path} cleaned.")
-        else:
-            print("Directory cleaning skipped.")
-
-
-def select_images(source_dir, destination_dir, max_images=500):
-    source_dir = Path(source_dir)
-    destination_dir = Path(destination_dir)
-    if not source_dir.exists():
-        print(f"Source directory {source_dir} does not exist.")
-        return
-
-    images = [f for f in source_dir.glob("**/*") if f.suffix.lower() in ['.jpg', '.jpeg', '.png']]
-    random.shuffle(images)
-
-    if len(images) < max_images:
-        print(f"Warning: Only {len(images)} images available in {source_dir}, but {max_images} requested.")
-    images = images[:max_images]
+def select_and_copy_images(source_files, destination_dir, max_images):
+    """
+    Selectează și copiază un număr specific de imagini în directorul destinație.
+    """
+    random.shuffle(source_files)
+    selected_files = source_files[:max_images]
 
     destination_dir.mkdir(parents=True, exist_ok=True)
 
-    for image in images:
-        destination_path = destination_dir / image.name
-        try:
-            shutil.copy(image, destination_path)
-        except Exception as e:
-            print(f"Error copying {image}: {e}")
+    for file in selected_files:
+        destination_path = destination_dir / file.name
+        shutil.copy(file, destination_path)
 
-    print(f"{len(images)} random images copied to {destination_dir}.")
+    print(f"{len(selected_files)} images copied to {destination_dir}.")
 
 
-def extract_zip_and_select_images(zip_path, destination_dir, max_images):
-    zip_path = Path(zip_path)
+def extract_and_select_images(archive_path, destination_dir, max_images, archive_type="zip"):
+    """
+    Extragerea unui subset de imagini din arhive ZIP sau TGZ.
+    """
+    archive_path = Path(archive_path)
     destination_dir = Path(destination_dir)
-    destination_dir.mkdir(parents=True, exist_ok=True)
 
-    if not zip_path.exists():
-        print(f"Error: ZIP file {zip_path} does not exist.")
+    if not archive_path.exists():
+        print(f"Error: {archive_type.upper()} file {archive_path} does not exist.")
         return
 
-    print(f"Opening ZIP file {zip_path}...")
-    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-        all_files = [f for f in zip_ref.namelist() if f.endswith(('.jpg', '.jpeg', '.png'))]
-        random.shuffle(all_files)
+    print(f"Opening {archive_type.upper()} file {archive_path}...")
+    extracted_files = []
 
-        if len(all_files) < max_images:
-            print(f"Warning: Only {len(all_files)} images available in {zip_path}, but {max_images} requested.")
-            max_images = len(all_files)
+    if archive_type == "zip":
+        with zipfile.ZipFile(archive_path, 'r') as archive:
+            all_files = [f for f in archive.namelist() if f.endswith(('.jpg', '.jpeg', '.png'))]
+            random.shuffle(all_files)
+            selected_files = all_files[:max_images]
 
-        selected_files = all_files[:max_images]
+            for file in selected_files:
+                file_name = Path(file).name
+                with archive.open(file) as source, open(destination_dir / file_name, 'wb') as target:
+                    shutil.copyfileobj(source, target)
+                extracted_files.append(destination_dir / file_name)
+    elif archive_type == "tgz":
+        with tarfile.open(archive_path, 'r') as archive:
+            all_files = [member for member in archive.getmembers() if member.name.endswith(('.jpg', '.jpeg', '.png'))]
+            random.shuffle(all_files)
+            selected_files = all_files[:max_images]
 
-        print(f"Extracting {len(selected_files)} images to {destination_dir}...")
-        for file in selected_files:
-            extracted_path = destination_dir / Path(file).name
-            with zip_ref.open(file) as source, open(extracted_path, 'wb') as target:
-                shutil.copyfileobj(source, target)
+            for member in selected_files:
+                member.name = Path(member.name).name
+                archive.extract(member, path=destination_dir)
+                extracted_files.append(destination_dir / member.name)
 
-    print(f"{len(selected_files)} images extracted to {destination_dir}.")
-
-
-def extract_tgz_and_select_images(tgz_path, destination_dir, max_images):
-    tgz_path = Path(tgz_path)
-    destination_dir = Path(destination_dir)
-    destination_dir.mkdir(parents=True, exist_ok=True)
-
-    if not tgz_path.exists():
-        print(f"Error: TGZ file {tgz_path} does not exist.")
-        return
-
-    print(f"Opening TGZ file {tgz_path}...")
-    with tarfile.open(tgz_path, 'r') as tar_ref:
-        all_files = [member for member in tar_ref.getmembers() if member.name.endswith(('.jpg', '.jpeg', '.png'))]
-        random.shuffle(all_files)
-
-        if len(all_files) < max_images:
-            print(f"Warning: Only {len(all_files)} images available in {tgz_path}, but {max_images} requested.")
-            max_images = len(all_files)
-
-        selected_files = all_files[:max_images]
-
-        print(f"Extracting {len(selected_files)} images to {destination_dir}...")
-        for member in selected_files:
-            member.name = Path(member.name).name
-            tar_ref.extract(member, path=destination_dir)
-
-    print(f"{len(selected_files)} images extracted to {destination_dir}.")
+    print(f"{len(extracted_files)} images extracted to {destination_dir}.")
 
 
-def download_kaggle_dataset_and_select_images(dataset_name, destination_dir, max_images):
+def download_and_select_kaggle_dataset(dataset_name, destination_dir, max_images):
+    """
+    Descărcare și selecție a imaginilor dintr-un set de date Kaggle.
+    """
     destination_dir = Path(destination_dir)
     destination_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"Downloading Kaggle dataset {dataset_name}...")
-    # Descărcarea setului de date fără `target_path`
     raw_dir = kagglehub.dataset_download(dataset_name)
 
     if not raw_dir:
         print(f"Error: Failed to download Kaggle dataset {dataset_name}.")
         return
 
-    # Obține lista tuturor imaginilor descărcate
     images = [f for f in Path(raw_dir).glob("**/*") if f.suffix.lower() in ['.jpg', '.jpeg', '.png']]
-    random.shuffle(images)
+    select_and_copy_images(images, destination_dir, max_images)
 
-    if len(images) < max_images:
-        print(f"Warning: Only {len(images)} images available in {dataset_name}, but {max_images} requested.")
-        max_images = len(images)
-
-    selected_images = images[:max_images]
-
-    print(f"Copying {len(selected_images)} images to {destination_dir}...")
-    for image in selected_images:
-        shutil.copy(image, destination_dir / image.name)
-
-    print(f"{len(selected_images)} images copied to {destination_dir}.")
 
 def manage_dataset_data(dataset_name, dataset_dir):
+    """
+    Gestionarea directoarelor din `dataset`.
+    """
     dataset_dir = Path(dataset_dir) / dataset_name
-    cwd = Path.cwd()
 
-    try:
-        relative_path = dataset_dir.relative_to(cwd)
-    except ValueError:
-        relative_path = dataset_dir
+    if not dataset_dir.exists() or not any(dataset_dir.glob("**/*")):
+        print(f"Directory {dataset_dir} does not exist or is empty. It will be created and populated with new data.")
+        return "clean"
 
-    # Verifică dacă directorul există
-    if not dataset_dir.exists():
-        print(f"Directory {relative_path} does not exist. It will be created and populated with new data.")
-        return "clean"  # Directorul nu există, trebuie creat și populat
-
-    # Verifică dacă directorul conține imagini valide
     images = [f for f in dataset_dir.glob("**/*") if f.suffix.lower() in ['.jpg', '.jpeg', '.png']]
     if not images:
-        print(f"Directory {relative_path} contains no valid images. It will be populated with new data.")
-        return "clean"  # Directorul este gol, trebuie populat
+        print(f"Directory {dataset_dir} contains no valid images. It will be populated with new data.")
+        return "clean"
 
-    # Dacă există imagini valide, întreabă utilizatorul cum să procedeze
-    choice = input(f"Directory {relative_path} contains images. Do you want to:\n"
+    choice = input(f"Directory {dataset_dir} contains images. Do you want to:\n"
                    "1. Keep existing images and add new ones (type 'keep')\n"
                    "2. Remove existing images and replace with new ones (type 'clean')\n"
                    "Choice: ").strip().lower()
@@ -187,23 +126,21 @@ def load_dataset(dataset_choice, base_path, max_images=500):
     dataset_dir = processed_data_dir / dataset_choice
     user_choice = manage_dataset_data(dataset_choice, processed_data_dir)
 
-    # Golește directorul dacă utilizatorul alege să-l curățe
     if user_choice == "clean":
         if dataset_dir.exists():
             shutil.rmtree(dataset_dir)
         dataset_dir.mkdir(parents=True, exist_ok=True)
 
-    # Procedează cu procesarea datelor
     if dataset_choice == "CelebA":
-        zip_path = datasets["CelebA"]
-        extract_zip_and_select_images(zip_path, dataset_dir, max_images)
+        extract_and_select_images(datasets["CelebA"], dataset_dir, max_images, archive_type="zip")
     elif dataset_choice == "LFW":
-        tgz_path = datasets["LFW"]
-        extract_tgz_and_select_images(tgz_path, dataset_dir, max_images)
+        extract_and_select_images(datasets["LFW"], dataset_dir, max_images, archive_type="tgz")
     elif dataset_choice == "FER-2013":
-        download_kaggle_dataset_and_select_images("msambare/fer2013", dataset_dir, max_images)
+        download_and_select_kaggle_dataset("msambare/fer2013", dataset_dir, max_images)
     elif dataset_choice == "Custom":
-        select_images(datasets["Custom"], dataset_dir, max_images)
+        custom_images_dir = datasets["Custom"]
+        images = [f for f in Path(custom_images_dir).glob("**/*") if f.suffix.lower() in ['.jpg', '.jpeg', '.png']]
+        select_and_copy_images(images, dataset_dir, max_images)
 
 
 if __name__ == "__main__":
