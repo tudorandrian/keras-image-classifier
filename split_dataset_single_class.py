@@ -5,23 +5,25 @@ import random
 import hashlib
 
 
-def check_and_clean_directories(base_dir):
+def check_and_clean_test_directory(base_dir):
     """
-    Verifică dacă directoarele `train`, `validation`, `test` conțin imagini și oferă opțiunea de a le șterge.
+    Verifică dacă directorul `test` conține imagini și oferă opțiunea de a-l șterge,
+    fără a afecta directoarele `train` și `validation`.
     """
     base_path = Path(base_dir)
-    for split in ["train", "validation", "test"]:
-        split_path = base_path / split
-        if split_path.exists() and any(split_path.rglob("*.*")):  # Verifică dacă există fișiere în subdirectoare
-            choice = input(f"Directory '{split_path}' is not empty. Do you want to clean it? (yes/no): ").strip().lower()
-            if choice == "yes":
-                shutil.rmtree(split_path)  # Șterge întregul director
-                print(f"Cleaned directory: {split_path}")
-                split_path.mkdir(parents=True, exist_ok=True)
-            else:
-                print(f"Skipping cleaning for: {split_path}")
-        elif not split_path.exists():
-            split_path.mkdir(parents=True, exist_ok=True)
+    test_path = base_path / "test"  # Doar directorul "test"
+
+    if test_path.exists() and any(test_path.rglob("*.*")):  # Verifică dacă există fișiere în subdirectoare
+        choice = input(f"Directory '{test_path}' is not empty. Do you want to clean it? (yes/no): ").strip().lower()
+        if choice == "yes":
+            shutil.rmtree(test_path)  # Șterge întregul director
+            print(f"Cleaned directory: {test_path}")
+            test_path.mkdir(parents=True, exist_ok=True)  # Recrează directorul "test"
+        else:
+            print(f"Skipping cleaning for: {test_path}")
+    elif not test_path.exists():
+        test_path.mkdir(parents=True, exist_ok=True)
+        print(f"Directory created: {test_path}")
 
 
 def calculate_image_hash(image_path):
@@ -84,42 +86,36 @@ def allocate_images_to_classes(source_dir, classes):
     return allocation
 
 
-def split_dataset_single_source(source_dir, output_dir, source, classes, train_ratio, validation_ratio, test_ratio):
+def split_dataset_test_only(source_dir, output_dir, source, classes, test_ratio=1):
     """
-    Împarte imaginile dintr-un director sursă într-o structură `sursă -> clasă -> split`,
-    verificând duplicatele și oferind opțiunea de a curăța directoarele.
+    Împarte imaginile doar în directorul `test`, fără a afecta `train` sau `validation`.
     """
     output_dir = Path(output_dir)
 
-    # Verificare proporții
-    if round(train_ratio + validation_ratio + test_ratio, 2) != 1.0:
-        raise ValueError("Ratios must sum to 1.")
+    # Verificare proporție
+    if test_ratio <= 0 or test_ratio > 1:
+        raise ValueError("Test ratio must be between 0 and 1.")
 
-    # Curățarea directoarelor, dacă este necesar
-    check_and_clean_directories(output_dir)
+    # Curățarea directorului `test`, dacă este necesar
+    check_and_clean_test_directory(output_dir)
 
-    # Creează directoarele pentru sursa curentă
-    for split in ["train", "validation", "test"]:
-        for class_name in classes:
-            (output_dir / split / source / class_name).mkdir(parents=True, exist_ok=True)
+    # Creează directoarele pentru `test`
+    for class_name in classes:
+        (output_dir / "test" / source / class_name).mkdir(parents=True, exist_ok=True)
 
     # Alocă imaginile pe clase
     allocation = allocate_images_to_classes(source_dir, classes)
 
-    # Separă și copiază imaginile în directoarele corespunzătoare
+    # Separă și copiază imaginile în directorul `test`
     for class_name, images in allocation.items():
         random.shuffle(images)
-        train_split = int(len(images) * train_ratio)
-        validation_split = int(len(images) * (train_ratio + validation_ratio))
+        test_split = int(len(images) * test_ratio)
 
-        train_images = images[:train_split]
-        validation_images = images[train_split:validation_split]
-        test_images = images[validation_split:]
+        test_images = images[:test_split]
 
-        # Copierea imaginilor, evitând duplicatele
-        for split, split_images in zip(["train", "validation", "test"], [train_images, validation_images, test_images]):
-            class_dir = output_dir / split / source / class_name
-            copy_images_with_no_duplicates(split_images, class_dir)
+        # Copierea imaginilor în `test`, evitând duplicatele
+        test_dir = output_dir / "test" / source / class_name
+        copy_images_with_no_duplicates(test_images, test_dir)
 
 
 def main():
@@ -142,19 +138,10 @@ def main():
             raise ValueError("No class names provided. Please enter at least one class.")
         classes = [name.strip() for name in class_names.split(",")]
 
-        # Introducerea proporțiilor
-        try:
-            train_ratio = float(input("Enter the train ratio (default: 0.7): ").strip() or 0.7)
-            validation_ratio = float(input("Enter the validation ratio (default: 0.2): ").strip() or 0.2)
-            test_ratio = float(input("Enter the test ratio (default: 0.1): ").strip() or 0.1)
-        except ValueError:
-            print("Invalid ratio values. Ratios must be numeric. Exiting...")
-            break
-
-        # Procesarea dataset-ului
+        # Procesarea dataset-ului pentru "test" doar
         try:
             print(f"Processing dataset for source: {source_name}")
-            split_dataset_single_source(source_dir, output_directory, source_name, classes, train_ratio, validation_ratio, test_ratio)
+            split_dataset_test_only(source_dir, output_directory, source_name, classes)
             print(f"Dataset successfully processed for source: {source_name}")
         except Exception as e:
             print(f"Error: {e}")
