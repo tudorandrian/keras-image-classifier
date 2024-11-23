@@ -21,6 +21,7 @@ class_mapping = {
     "Oameni": "Humans",
     "Caini": "Dogs",
     "Pisici": "Cats",
+    "Masini": "Cars",
     "Cai": "Horses",
     "Cladiri": "Buildings"
 }
