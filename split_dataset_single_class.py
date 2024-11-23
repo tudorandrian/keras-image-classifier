@@ -137,7 +137,7 @@ def main():
         if not source_name:
             source_name = "Custom"
 
-        class_names = input("Enter class names separated by commas (e.g., Oameni, Caini, Pisici, Cai, Cladiri): ").strip()
+        class_names = input("Enter class names separated by commas (e.g., Oameni, Caini, Pisici, Masini, Cai, Cladiri): ").strip()
         if not class_names:
             raise ValueError("No class names provided. Please enter at least one class.")
         classes = [name.strip() for name in class_names.split(",")]
