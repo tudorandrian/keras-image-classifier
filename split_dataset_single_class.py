@@ -122,7 +122,7 @@ def split_dataset_single_source(source_dir, output_dir, source, classes, train_r
             copy_images_with_no_duplicates(split_images, class_dir)
 
 
-if __name__ == "__main__":
+def main():
     while True:
         # Introducere date din consolă
         source_dir = input("Enter the source directory for images (default: ./data_project/preprocessed/Custom): ").strip()
@@ -164,3 +164,7 @@ if __name__ == "__main__":
         if continue_choice != "yes":
             print("Exiting...")
             break
+
+
+if __name__ == "__main__":
+    main()

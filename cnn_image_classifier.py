@@ -129,11 +129,15 @@ def process_class(selected_class):
                 print(f"Saved image for class '{selected_class}': {image_path}")
 
 
-# Exemplu de utilizare
-if __name__ == "__main__":
+def main():
     print("Available actions: run_model, create_class, delete_class")
     action = input("Enter the action you want to perform: ").strip()
 
     if action == "run_model":
         selected_class = input("Enter the name of the class to process (e.g., Oameni): ").strip()
         process_class(selected_class)
+
+
+# Exemplu de utilizare
+if __name__ == "__main__":
+    main()

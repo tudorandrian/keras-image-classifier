@@ -142,8 +142,7 @@ def load_dataset(dataset_choice, base_path, max_images=500):
         images = [f for f in Path(custom_images_dir).glob("**/*") if f.suffix.lower() in ['.jpg', '.jpeg', '.png']]
         select_and_copy_images(images, dataset_dir, max_images)
 
-
-if __name__ == "__main__":
+def main():
     base_path = "./data_project"
 
     while True:
@@ -167,3 +166,7 @@ if __name__ == "__main__":
         elif next_action != "yes":
             print("Invalid input. Exiting the program.")
             break
+
+
+if __name__ == "__main__":
+    main()

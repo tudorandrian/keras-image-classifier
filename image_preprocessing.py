@@ -64,7 +64,7 @@ def preprocess_images_with_padding(source_dir, output_dir, target_size, mode, cl
             print(f"Error processing {image_path}: {e}")
 
 
-if __name__ == "__main__":
+def main():
     # Setări implicite pentru directoare
     default_source_directory = "./data_project/dataset/Custom"
     default_output_directory = "./data_project/preprocessed/Custom"
@@ -74,7 +74,8 @@ if __name__ == "__main__":
     if not source_directory:
         source_directory = default_source_directory
 
-    output_directory = input(f"Enter the output directory for preprocessed images (default: {default_output_directory}): ").strip()
+    output_directory = input(
+        f"Enter the output directory for preprocessed images (default: {default_output_directory}): ").strip()
     if not output_directory:
         output_directory = default_output_directory
 
@@ -94,7 +95,8 @@ if __name__ == "__main__":
         color_mode = "RGB"
 
     # Întreabă utilizatorul dacă vrea să șteargă imaginile procesate anterior
-    clean_output_choice = input("Do you want to clean the processed images directory before running? (yes/no): ").strip().lower()
+    clean_output_choice = input(
+        "Do you want to clean the processed images directory before running? (yes/no): ").strip().lower()
     clean_output = clean_output_choice == "yes"
 
     # Rularea funcției de preprocesare
@@ -105,4 +107,8 @@ if __name__ == "__main__":
         color_mode,
         clean_output
     )
+
+
+if __name__ == "__main__":
+    main()
 
