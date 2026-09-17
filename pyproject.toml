@@ -77,7 +77,6 @@ show_missing = true
 line-length = 100
 target-version = "py312"
 src = ["src", "tests", "scripts"]
-extend-exclude = ["cnn_image_classifier.py", "core_main_file.py", "image_preprocessing.py", "manage_datasets.py", "split_dataset_single_class.py"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "S", "C4", "SIM", "PTH", "RUF"]
