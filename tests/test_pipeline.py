@@ -9,11 +9,13 @@ from __future__ import annotations
 import csv
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from keras_image_classifier import KicError
 from keras_image_classifier.cli import main
+from keras_image_classifier.data import ImageBatches
 from keras_image_classifier.evaluate import MATRIX_FILE, METRICS_FILE, REPORT_FILE, evaluate
 from keras_image_classifier.predict import predict
 from keras_image_classifier.train import (
@@ -102,6 +104,30 @@ def test_evaluation_refuses_data_that_changed_after_training(
         evaluate(moved)
 
 
+def test_evaluation_refuses_a_split_that_changed_after_training(
+    trained: dict[str, Path], tmp_path: Path
+) -> None:
+    """Re-splitting must be caught even when the class list and image size still match.
+
+    Otherwise a re-split test set can silently overlap the training set: the guard
+    would pass, evaluate would print a clean score, and it would be wrong.
+    """
+    run = json.loads((trained["run"] / RUN_FILE).read_text())
+    other = tmp_path / "other"
+    assert (
+        main(["prepare", str(trained["raw"]), str(other), "--image-size", str(run["image_size"])])
+        == 0
+    )
+    assert main(["split", str(other), "--seed", "99"]) == 0
+    moved = tmp_path / "run"
+    moved.mkdir()
+    (moved / MODEL_FILE).write_bytes((trained["run"] / MODEL_FILE).read_bytes())
+    run["config"]["data"] = str(other)
+    (moved / RUN_FILE).write_text(json.dumps(run))
+    with pytest.raises(KicError, match="split"):
+        evaluate(moved)
+
+
 def test_the_same_seed_gives_the_same_training_curve(
     trained: dict[str, Path], tmp_path: Path
 ) -> None:
@@ -110,6 +136,44 @@ def test_the_same_seed_gives_the_same_training_curve(
         for name in ("first", "second")
     ]
     assert results[0]["best_val_loss"] == pytest.approx(results[1]["best_val_loss"], rel=1e-4)
+
+
+def test_augmentation_is_wired_to_the_train_split_only(
+    trained: dict[str, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Augmented validation data would silently corrupt model selection; pin it shut."""
+    created: list[ImageBatches] = []
+
+    class RecordingBatches(ImageBatches):
+        def __init__(
+            self,
+            root: Path,
+            paths: list[str],
+            labels: list[int],
+            *,
+            batch_size: int,
+            shuffle: bool,
+            augment: bool = False,
+            seed: int = 0,
+            **kwargs: Any,
+        ) -> None:
+            super().__init__(
+                root,
+                paths,
+                labels,
+                batch_size=batch_size,
+                shuffle=shuffle,
+                augment=augment,
+                seed=seed,
+                **kwargs,
+            )
+            created.append(self)
+
+    monkeypatch.setattr("keras_image_classifier.data.ImageBatches", RecordingBatches)
+    train(TrainConfig(data=str(trained["prepared"]), run_dir=str(tmp_path / "aug-check"), epochs=1))
+    assert len(created) == 2
+    assert created[0].augment is True  # train batches, built first
+    assert created[1].augment is False  # validation batches, never augmented
 
 
 def test_a_model_file_with_embedded_code_is_refused(tmp_path: Path) -> None:
