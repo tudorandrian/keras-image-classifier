@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import struct
+import zlib
 from pathlib import Path
 
 import numpy as np
@@ -13,6 +15,28 @@ from keras_image_classifier.images import letterbox, load_rgb, pixel_hash
 def save(tmp_path: Path, name: str, image: Image.Image, **options: object) -> Path:
     path = tmp_path / name
     image.save(path, **options)
+    return path
+
+
+def header_only_png(tmp_path: Path, name: str, width: int, height: int) -> Path:
+    """A PNG with a declared width and height but no real pixel data.
+
+    Pillow only needs the IHDR chunk to know the size, and its IDAT chunk
+    handler stops reading as soon as it sees the IDAT chunk header, so an
+    empty IDAT (no data, no checksum) is enough to make Image.open() succeed
+    without ever allocating or decoding the declared number of pixels.
+    """
+    signature = b"\x89PNG\r\n\x1a\n"
+    ihdr_data = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    ihdr_chunk = (
+        struct.pack(">I", len(ihdr_data))
+        + b"IHDR"
+        + ihdr_data
+        + struct.pack(">I", zlib.crc32(b"IHDR" + ihdr_data))
+    )
+    idat_chunk = struct.pack(">I", 0) + b"IDAT"
+    path = tmp_path / name
+    path.write_bytes(signature + ihdr_chunk + idat_chunk)
     return path
 
 
@@ -57,6 +81,18 @@ def test_pixel_limit_is_checked_before_decoding(tmp_path: Path) -> None:
     path = save(tmp_path, "big.png", Image.new("RGB", (300, 300)))
     with pytest.raises(KicError, match="300x300 exceeds the limit of 1000 pixels"):
         load_rgb(path, max_pixels=1000)
+
+
+def test_pillows_own_decompression_bomb_warning_becomes_a_kicerror(tmp_path: Path) -> None:
+    path = header_only_png(tmp_path, "warning_band.png", 12000, 12000)
+    with pytest.raises(KicError, match="not a readable image"):
+        load_rgb(path)
+
+
+def test_pillows_own_decompression_bomb_error_becomes_a_kicerror(tmp_path: Path) -> None:
+    path = header_only_png(tmp_path, "error_band.png", 30000, 30000)
+    with pytest.raises(KicError, match="not a readable image"):
+        load_rgb(path)
 
 
 def test_exif_orientation_is_applied(tmp_path: Path) -> None:
