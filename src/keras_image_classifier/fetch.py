@@ -51,14 +51,19 @@ class _HttpsOnlyRedirectHandler(urllib.request.HTTPRedirectHandler):
         newurl: str,
     ) -> urllib.request.Request | None:
         if not newurl.startswith("https://"):
+            fp.close()
             raise KicError(f"redirect target {newurl!r} is not https")
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
-# Installed once, at import time, as the process's default opener. This is what
-# makes the plain urllib.request.urlopen(...) call in download() below enforce
-# https on every redirect hop, not only on the URL it is first given.
-urllib.request.install_opener(urllib.request.build_opener(_HttpsOnlyRedirectHandler))
+# Built once, at module load, and used explicitly (never installed as the
+# process-wide default opener). A library should not overwrite the opener a
+# consumer may have set up for its own unrelated requests - a proxy, an auth
+# handler, a custom CA bundle - and should not depend on import order to keep
+# its own guarantees. Passing this opener around explicitly, instead of
+# reaching for the ambient default, is also the pattern worth a student
+# reading this module for the first time.
+_OPENER = urllib.request.build_opener(_HttpsOnlyRedirectHandler)
 
 
 def sha256_of(path: Path) -> str:
@@ -75,11 +80,12 @@ def download(url: str, target: Path, *, expected_sha256: str, max_bytes: int) ->
         raise KicError("only https downloads are allowed")
     received = 0
     try:
-        # The scheme is checked above before the request, and the installed
-        # _HttpsOnlyRedirectHandler rejects any redirect that would leave https,
-        # so no other scheme can be reached on any hop.
+        # Opened through _OPENER, not the bare urllib.request.urlopen: the scheme is
+        # checked above before the request, and _OPENER's _HttpsOnlyRedirectHandler
+        # rejects any redirect that would leave https, so no other scheme can be
+        # reached on any hop.
         with (
-            urllib.request.urlopen(url, timeout=60) as response,  # noqa: S310  # nosec B310
+            _OPENER.open(url, timeout=60) as response,
             target.open("wb") as out,
         ):
             while chunk := response.read(CHUNK):
