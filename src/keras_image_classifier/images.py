@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import warnings
 from pathlib import Path
 
 from PIL import Image, ImageOps, UnidentifiedImageError
@@ -16,19 +17,34 @@ MAX_PIXELS = 50_000_000
 def load_rgb(path: Path, *, max_pixels: int = MAX_PIXELS) -> Image.Image:
     """Open one file as an upright RGB image, or raise KicError saying why not.
 
-    The format and the pixel count come from the header, so an oversized or
-    disguised file is refused before any pixel data is decoded.
+    The format and the pixel count come from the header, so a disguised file is
+    refused before any pixel data is decoded. Pillow also runs its own
+    decompression-bomb ceiling (Image.MAX_IMAGE_PIXELS) while reading that same
+    header, ahead of our own max_pixels check below -- so a big enough image
+    never reaches our check at all. That ceiling raises DecompressionBombError
+    outright, or only warns via DecompressionBombWarning one size band lower;
+    the warning is turned into an error here so both bands are always refused
+    the same way, regardless of the caller's ambient warnings filters.
     """
     try:
-        with Image.open(path) as handle:
-            if handle.format not in ALLOWED_FORMATS:
-                raise KicError(f"unsupported format {handle.format}")
-            width, height = handle.size
-            if width * height > max_pixels:
-                raise KicError(f"{width}x{height} exceeds the limit of {max_pixels} pixels")
-            upright = ImageOps.exif_transpose(handle)
-            return upright.convert("RGB")
-    except (UnidentifiedImageError, OSError, SyntaxError, ValueError) as error:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", Image.DecompressionBombWarning)
+            with Image.open(path) as handle:
+                if handle.format not in ALLOWED_FORMATS:
+                    raise KicError(f"unsupported format {handle.format}")
+                width, height = handle.size
+                if width * height > max_pixels:
+                    raise KicError(f"{width}x{height} exceeds the limit of {max_pixels} pixels")
+                upright = ImageOps.exif_transpose(handle)
+                return upright.convert("RGB")
+    except (
+        UnidentifiedImageError,
+        OSError,
+        SyntaxError,
+        ValueError,
+        Image.DecompressionBombError,
+        Image.DecompressionBombWarning,
+    ) as error:
         raise KicError(f"not a readable image ({type(error).__name__})") from error
 
 
