@@ -9,7 +9,7 @@ from typing import Any
 import numpy as np
 
 from keras_image_classifier import KicError
-from keras_image_classifier.dataset import load_manifest, load_split
+from keras_image_classifier.dataset import SPLITS, load_manifest, load_split
 from keras_image_classifier.metrics import IntMatrix, confusion_matrix, report
 from keras_image_classifier.train import load_model, load_run
 
@@ -25,6 +25,17 @@ def evaluate(run_dir: Path, *, split: str = "test", batch_size: int = 128) -> di
     if manifest.classes != run["classes"] or manifest.image_size != run["image_size"]:
         raise KicError(f"{data} no longer matches the data this run was trained on")
     paths, labels, classes = load_split(data, split)
+    split_info: dict[str, Any] = json.loads((data / SPLITS).read_text(encoding="utf-8"))
+    current_split = {
+        "version": split_info["version"],
+        "seed": split_info["seed"],
+        "ratios": split_info["ratios"],
+    }
+    if current_split != run.get("split"):
+        raise KicError(
+            f"the split in {data} no longer matches the split this run was trained on; "
+            "retrain, or restore the splits.json that produced this run"
+        )
 
     from keras_image_classifier.data import ImageBatches
 

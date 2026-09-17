@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from keras_image_classifier import KicError, __version__
-from keras_image_classifier.dataset import load_manifest, load_split
+from keras_image_classifier.dataset import SPLITS, load_manifest, load_split
 
 MODEL_FILE = "model.keras"
 RUN_FILE = "run.json"
@@ -74,6 +74,7 @@ def train(config: TrainConfig) -> dict[str, Any]:
     manifest = load_manifest(data)
     train_paths, train_labels, classes = load_split(data, "train")
     val_paths, val_labels, _ = load_split(data, "val")
+    split_info: dict[str, Any] = json.loads((data / SPLITS).read_text(encoding="utf-8"))
 
     import keras
 
@@ -134,6 +135,11 @@ def train(config: TrainConfig) -> dict[str, Any]:
         "config": asdict(config),
         "classes": classes,
         "image_size": manifest.image_size,
+        "split": {
+            "version": split_info["version"],
+            "seed": split_info["seed"],
+            "ratios": split_info["ratios"],
+        },
         "parameters": int(model.count_params()),
         "train_samples": len(train_paths),
         "val_samples": len(val_paths),
