@@ -35,7 +35,7 @@ def test_extract_keeps_class_and_file_name_only(tmp_path: Path) -> None:
     assert written == ["Forest/Forest_1.jpg", "River/River_1.jpg"]
 
 
-def test_hostile_member_names_cannot_leave_the_destination(tmp_path: Path) -> None:
+def test_hostile_member_names_are_rejected_not_re_homed(tmp_path: Path) -> None:
     archive = make_zip(
         tmp_path / "evil.zip",
         {
@@ -48,11 +48,9 @@ def test_hostile_member_names_cannot_leave_the_destination(tmp_path: Path) -> No
         },
     )
     destination = tmp_path / "deep" / "out"
-    fetch.extract_images(archive, destination)
-    everything = [p for p in tmp_path.rglob("*") if p.is_file() and p.suffix == ".jpg"]
-    assert all(destination in p.parents for p in everything)
-    assert (destination / "Forest" / "ok.jpg").is_file()
-    assert not any(".." in p.name or "\\" in p.name for p in everything)
+    assert fetch.extract_images(archive, destination) == 1
+    written = sorted(p.relative_to(destination).as_posix() for p in destination.rglob("*.*"))
+    assert written == ["Forest/ok.jpg"]
 
 
 def test_a_decompression_bomb_is_stopped_by_bytes_actually_written(tmp_path: Path) -> None:
@@ -86,6 +84,33 @@ def serve(monkeypatch: pytest.MonkeyPatch, payload: bytes) -> None:
 def test_download_refuses_plain_http(tmp_path: Path) -> None:
     with pytest.raises(KicError, match="only https"):
         fetch.download("http://example.org/a.zip", tmp_path / "a", expected_sha256="", max_bytes=1)
+
+
+def test_download_refuses_a_redirect_that_leaves_https() -> None:
+    handler = fetch._HttpsOnlyRedirectHandler()
+    with pytest.raises(KicError, match="not https"):
+        handler.redirect_request(
+            urllib.request.Request("https://example.org/a"),
+            None,
+            302,
+            "Found",
+            {},
+            "http://example.org/b",
+        )
+
+
+def test_download_follows_a_redirect_that_stays_on_https() -> None:
+    handler = fetch._HttpsOnlyRedirectHandler()
+    redirected = handler.redirect_request(
+        urllib.request.Request("https://example.org/a"),
+        None,
+        302,
+        "Found",
+        {},
+        "https://example.org/b",
+    )
+    assert redirected is not None
+    assert redirected.full_url == "https://example.org/b"
 
 
 def test_download_verifies_the_checksum_and_removes_a_bad_file(
@@ -134,6 +159,30 @@ def test_fetch_eurosat_leaves_nothing_behind_when_the_archive_is_corrupt(
         fetch, "EUROSAT_SHA256", hashlib.sha256(b"this is not a zip file").hexdigest()
     )
     with pytest.raises(zipfile.BadZipFile):
+        fetch.fetch_eurosat(tmp_path / "eurosat")
+    assert not (tmp_path / "eurosat").exists()
+
+
+def _mark_first_member_encrypted(path: Path) -> None:
+    """Flip the encryption bit in a real zip's headers, without an encryption
+    library, so zipfile refuses to read the member back with a RuntimeError."""
+    data = bytearray(path.read_bytes())
+    local = data.find(b"PK\x03\x04")
+    central = data.find(b"PK\x01\x02")
+    data[local + 6] |= 0x01
+    data[central + 8] |= 0x01
+    path.write_bytes(bytes(data))
+
+
+def test_fetch_eurosat_cleans_up_after_a_non_kicerror_extraction_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    archive = make_zip(tmp_path / "src.zip", {"Forest/enc.jpg": b"data"})
+    _mark_first_member_encrypted(archive)
+    payload = archive.read_bytes()
+    serve(monkeypatch, payload)
+    monkeypatch.setattr(fetch, "EUROSAT_SHA256", hashlib.sha256(payload).hexdigest())
+    with pytest.raises(RuntimeError, match="encrypted"):
         fetch.fetch_eurosat(tmp_path / "eurosat")
     assert not (tmp_path / "eurosat").exists()
 
