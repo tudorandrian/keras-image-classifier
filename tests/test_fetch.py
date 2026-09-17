@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import email.message
 import hashlib
+import http.client
 import io
 import urllib.request
 import zipfile
@@ -78,7 +80,7 @@ class FakeResponse(io.BytesIO):
 
 
 def serve(monkeypatch: pytest.MonkeyPatch, payload: bytes) -> None:
-    monkeypatch.setattr(urllib.request, "urlopen", lambda url, timeout: FakeResponse(payload))
+    monkeypatch.setattr(fetch._OPENER, "open", lambda url, timeout: FakeResponse(payload))
 
 
 def test_download_refuses_plain_http(tmp_path: Path) -> None:
@@ -88,22 +90,24 @@ def test_download_refuses_plain_http(tmp_path: Path) -> None:
 
 def test_download_refuses_a_redirect_that_leaves_https() -> None:
     handler = fetch._HttpsOnlyRedirectHandler()
+    fp = io.BytesIO(b"redirect body")
     with pytest.raises(KicError, match="not https"):
         handler.redirect_request(
             urllib.request.Request("https://example.org/a"),
-            None,
+            fp,
             302,
             "Found",
             {},
             "http://example.org/b",
         )
+    assert fp.closed
 
 
 def test_download_follows_a_redirect_that_stays_on_https() -> None:
     handler = fetch._HttpsOnlyRedirectHandler()
     redirected = handler.redirect_request(
         urllib.request.Request("https://example.org/a"),
-        None,
+        io.BytesIO(b""),
         302,
         "Found",
         {},
@@ -111,6 +115,81 @@ def test_download_follows_a_redirect_that_stays_on_https() -> None:
     )
     assert redirected is not None
     assert redirected.full_url == "https://example.org/b"
+
+
+class _FakeRedirectResponse:
+    """A response object shaped enough like http.client.HTTPResponse for
+    urllib's own machinery to process it as a 302, so a test can drive a real
+    redirect through fetch._OPENER instead of mocking .open() itself away."""
+
+    def __init__(self, status: int, header_pairs: list[tuple[str, str]]) -> None:
+        self.status = status
+        self.code = status
+        self.reason = "Found"
+        self.version = 11
+        headers = email.message.Message()
+        for key, value in header_pairs:
+            headers[key] = value
+        self.headers = headers
+        self.msg = self.headers
+        self.closed = False
+
+    def getheader(self, name: str, default: str | None = None) -> str | None:
+        return self.headers.get(name, default)
+
+    def getheaders(self) -> list[tuple[str, str]]:
+        return list(self.headers.items())
+
+    def info(self) -> email.message.Message:
+        return self.headers
+
+    def read(self, *_args: object, **_kwargs: object) -> bytes:
+        return b""
+
+    def close(self) -> None:
+        self.closed = True
+
+    def isclosed(self) -> bool:
+        return self.closed
+
+
+class _FakeHTTPSConnection:
+    """A minimal stand-in for http.client.HTTPSConnection that always answers
+    with a redirect to a plain-http URL, so opening through fetch._OPENER
+    exercises the real OpenerDirector/HTTPRedirectHandler machinery."""
+
+    debuglevel = 0
+    sock = None
+    _http_vsn = 11
+    _http_vsn_str = "HTTP/1.1"
+
+    def __init__(self, host: str, *_args: object, **_kwargs: object) -> None:
+        self.host = host
+
+    def set_debuglevel(self, _level: int) -> None:
+        pass
+
+    def request(self, *_args: object, **_kwargs: object) -> None:
+        pass
+
+    def getresponse(self) -> _FakeRedirectResponse:
+        return _FakeRedirectResponse(302, [("Location", "http://example.org/downgraded")])
+
+    def close(self) -> None:
+        pass
+
+
+def test_the_module_opener_actually_refuses_a_downgrading_redirect(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """serve() replaces _OPENER.open() outright, which proves nothing about
+    whether _HttpsOnlyRedirectHandler is really reachable from it. This test
+    instead fakes the underlying HTTPS connection, so the request travels
+    through the real OpenerDirector and its redirect handling, and confirms
+    that a genuine redirect to http is refused with KicError from there."""
+    monkeypatch.setattr(http.client, "HTTPSConnection", _FakeHTTPSConnection)
+    with pytest.raises(KicError, match="not https"):
+        fetch._OPENER.open("https://example.org/a", timeout=5)
 
 
 def test_download_verifies_the_checksum_and_removes_a_bad_file(
