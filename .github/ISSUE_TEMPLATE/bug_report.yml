@@ -1,0 +1,33 @@
+name: Bug report
+description: kic does something wrong, or the documentation does not match what it does
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: The command you ran and what it printed. Paste standard error in full.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: info
+    attributes:
+      label: Output of `uv run kic info`
+      description: Python, Keras, backend and NumPy versions, and the platform.
+      render: json
+    validations:
+      required: true
+  - type: textarea
+    id: data
+    attributes:
+      label: Data
+      description: >-
+        Which data set (synthetic shapes, EuroSAT, or your own) and roughly how many images per
+        class. Please do not attach images of people.

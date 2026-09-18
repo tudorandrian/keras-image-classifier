@@ -11,7 +11,7 @@ import numpy as np
 from keras_image_classifier import KicError
 from keras_image_classifier.dataset import load_manifest, load_split, split_identity
 from keras_image_classifier.metrics import IntMatrix, confusion_matrix, report
-from keras_image_classifier.train import load_model, load_run
+from keras_image_classifier.train import RUN_FILE, load_model, load_run
 
 METRICS_FILE = "metrics.json"
 REPORT_FILE = "report.md"
@@ -21,6 +21,13 @@ MATRIX_FILE = "confusion_matrix.png"
 def evaluate(run_dir: Path, *, split: str = "test", batch_size: int = 128) -> dict[str, Any]:
     run = load_run(run_dir)
     data = Path(run["config"]["data"])
+    if not data.is_dir():
+        # run.json keeps the data path as it was typed, usually relative, so it resolves
+        # only from the directory `kic train` ran in.
+        raise KicError(
+            f"{run_dir / RUN_FILE} says this run was trained on '{data}', which does not exist "
+            "here; run kic evaluate from the directory you trained in"
+        )
     manifest = load_manifest(data)
     if manifest.classes != run["classes"] or manifest.image_size != run["image_size"]:
         raise KicError(f"{data} no longer matches the data this run was trained on")

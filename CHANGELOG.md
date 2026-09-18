@@ -3,6 +3,46 @@
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 uses [Semantic Versioning](https://semver.org/).
 
+## [1.0.2] - 2026-09-18
+
+Fixes found by installing the project from a fresh clone and following the README the way a new
+user would. The pipeline's results do not change; the EuroSAT numbers in the README are from the
+same run.
+
+### Fixed
+
+- With `KERAS_BACKEND` set to `tensorflow` or `torch` in the shell, a common leftover from
+  earlier TensorFlow work, every `kic` command, `kic info` included, failed with a 52-line
+  `ModuleNotFoundError` traceback and exit status 1. It now prints one line naming the variable
+  and the missing package and exits with status 2, as the README promises for a problem the user
+  can fix. `docs/architecture.md` said "set `KERAS_BACKEND` to try one" without saying that the
+  backend's package must be installed first; it now says so.
+- `kic train` printed the Keras per-epoch progress on standard output, ahead of its JSON, so its
+  output could not be parsed, contrary to "every command prints JSON" in the README. The
+  progress now goes to standard error. `test_every_step_prints_json` checked `synth`, `prepare`
+  and `split` but not `train`, which is how this was missed; a new test covers it.
+- `kic evaluate`, run from any directory other than the one training ran in, reported "has no
+  manifest.json; run 'kic prepare' first" and sent the user to redo work that was never missing:
+  `run.json` keeps the data path as typed, usually relative. It now says that the path does not
+  resolve from here and to run it from the directory you trained in.
+- The README said the quick start takes "under a minute", and 52 seconds, and
+  `docs/testing.md` called its timings upper bounds. Measured again on the same laptop: 58
+  seconds, and about 90 on the first run after `uv sync`. Both documents now give those numbers.
+- `pyproject.toml` classified the project as "4 - Beta" while the README calls it stable. It is
+  now "5 - Production/Stable".
+
+### Added
+
+- Python 3.14. The locked dependencies install on it unchanged and the whole test suite passes
+  there; CI now tests Python 3.12, 3.13 and 3.14 on Linux and Windows. The README's route
+  without uv, which failed on 3.14 with "requires a different Python", now names the supported
+  versions.
+- `CONTRIBUTING.md`, a bug-report form that asks for the output of `kic info`, and a
+  pull-request checklist, so the rules CI enforces (no lowered thresholds, no ignored warnings,
+  no em dash) are written down before a contributor meets them as a failed check.
+- A README paragraph on `KERAS_BACKEND` for use from your own Python code: Keras on its own
+  defaults to TensorFlow, which this project does not install.
+
 ## [1.0.1] - 2026-09-18
 
 Corrections found by a review of the 1.0.0 branch. No behaviour of the pipeline changes; the
@@ -95,6 +135,7 @@ A rewrite of the 2024 coursework. The idea is unchanged; every file is new.
 
 The coursework as submitted, kept under the tag `v0.1.0-coursework`.
 
+[1.0.2]: https://github.com/tudorandrian/keras-image-classifier/releases/tag/v1.0.2
 [1.0.1]: https://github.com/tudorandrian/keras-image-classifier/releases/tag/v1.0.1
 [1.0.0]: https://github.com/tudorandrian/keras-image-classifier/releases/tag/v1.0.0
 [0.1.0-coursework]: https://github.com/tudorandrian/keras-image-classifier/tree/v0.1.0-coursework
