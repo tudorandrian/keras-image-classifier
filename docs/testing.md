@@ -1,0 +1,117 @@
+# Testing
+
+A training pipeline fails quietly. Shuffled labels, a test image that leaked into training, the
+wrong epoch saved: each of these still runs to the end and still prints an accuracy. So the
+tests here assert numbers, and one of them trains a real model.
+
+## Levels
+
+| Level | Where | Runs in CI | Network |
+| --- | --- | --- | --- |
+| Static analysis | ruff, ruff format, mypy strict, bandit, pip-audit, `scripts/check_text.py` on ubuntu-24.04; gitleaks in its own job | every push to `main`, every pull request, weekly | advisories only |
+| Unit, quantitative | `test_images.py`, `test_dataset.py`, `test_metrics.py`, `test_synth.py`, `test_fetch.py`, `test_data_and_model.py` | ubuntu-24.04 and windows-2025, Python 3.12 and 3.13 | no |
+| End to end | `test_pipeline.py`, `test_cli.py`: synth, prepare, split, train, evaluate, predict through the command line | same matrix | no |
+| Upstream data | `-m network`: the EuroSAT archive on Zenodo still has the pinned size | weekly only | yes |
+| Benchmark | the EuroSAT run in the README | by hand, before a release | yes |
+
+There is no browser level because there is no web interface; the rendered README and
+`docs/results/eurosat/report.md` are checked on GitHub once, in the release task.
+
+## What is asserted
+
+Data preparation
+
+- The format comes from the file content: a GIF named `.jpg` is refused; empty, truncated and
+  non-image files are skipped with a recorded reason; a 300 x 300 image is refused under a
+  1000-pixel limit before it is decoded; EXIF rotation is applied.
+- Letterboxing a 100 x 50 white image into 64 px gives exactly 16 black rows above and below.
+- The pixel hash is equal for the same picture saved as PNG and BMP, and changes with one pixel.
+- A duplicate is kept once; a picture under two labels is dropped from both, and the files on
+  disk match the manifest exactly.
+- The split is stratified (3 of 20 per class in validation and in test), disjoint and complete;
+  renaming every source file does not change it; another seed does.
+
+Untrusted archives and downloads
+
+- Members named `../../x.jpg`, `/abs/x.jpg`, `C:/x.jpg` or with backslashes write nothing
+  outside the destination.
+- A 20 MB member of zeros that compresses far smaller is stopped at the byte limit, which counts
+  bytes actually written rather than trusting the zip header.
+- Plain http is refused, and so is a redirect that leaves https; a wrong checksum or an
+  oversized response deletes the partial file.
+
+Metrics
+
+- A 10-sample, 3-class example worked by hand: accuracy 0.7, baseline 0.4, per-class precision,
+  recall and F1. A class that is never predicted scores 0 without a warning.
+
+Model and loader
+
+- The parameter count is 98,547 for three classes at 32 px and at 128 px, and there is no
+  Flatten layer. Outputs sum to 1. The first layer rescales, so the loader must deliver 0-255.
+- Shuffling is seeded and changes each epoch; augmentation produces only the image or its
+  mirror, and is wired to the training split only; decoded images are cached.
+
+End to end, on 360 synthetic images
+
+- Validation and test accuracy of at least 0.9 against a majority baseline of 1/3. This is the
+  test that caught the batch-normalisation problem described in `architecture.md`; the fixture
+  runs 20 epochs of 4 steps, which is what puts it past the warm-up.
+- `run.json` holds the configuration, class list, versions, best epoch and timings, and agrees
+  with `history.csv`.
+- The same seed gives the same validation loss to four significant figures.
+- A run directory is never overwritten; evaluation refuses data that no longer matches the run;
+  an unreadable file among the inputs of `predict` yields an error record and the rest are
+  still classified.
+- A `.keras` file containing a Lambda layer is refused by `load_model`.
+- User errors exit with status 2 and one line on standard error, never a traceback.
+
+What `evaluate` does and does not catch is worth stating exactly, because it is easy to read as
+more than it is. Before scoring, it compares the prepared set's class list and image size, and
+the split's version, seed and ratios, with the values recorded in `run.json`, and refuses to go
+on if either differs. It does **not** hash split membership. A prepared set rebuilt from changed
+raw data under the same seed and the same ratios produces a different membership that this
+guard cannot see. Keep the `splits.json` that produced a run, or retrain.
+
+## Reference measurements
+
+Measured on 2026-09-18: Windows 10, Intel Core i7-7700HQ (2017, 4 cores and 8 threads), 16 GB of
+memory, no GPU, Python 3.13.15, Keras 3.15.1 on JAX 0.11.1. The machine was doing other work
+during part of the EuroSAT prepare step, so treat the timings as upper bounds.
+
+| Measure | Value |
+| --- | --- |
+| Environment from `uv sync` | 64 packages, 609 MB including the development tools |
+| Test suite, `uv run pytest --cov` | 100 tests and 1 deselected network test, 67 s, 100 % line and branch coverage |
+| Quick start on synthetic shapes: 600 images, 48 px, 15 epochs | 52 s for all six commands, of which 17 s training; test accuracy 1.000, baseline 0.333 |
+| Batch-norm warm-up on the same data (7 steps per epoch) | validation accuracy exactly 0.3333 through step 28, 0.3444 at step 35, 0.9333 at step 42, 1.0000 at step 49, while training accuracy is 1.0000 throughout |
+| EuroSAT prepare: decode, letterbox, hash and write 27,000 images | 2 min 39 s; 0 skipped, 0 duplicates, 0 conflicts |
+| EuroSAT training: 20 epochs, 18,900 images, 99,450 parameters | 1,357 s (23 min), 296 steps of 64 images per epoch, 229 ms per step |
+| EuroSAT test split, 4,050 images | accuracy 0.9491, macro F1 0.9473, baseline 0.1111 |
+| EuroSAT weakest and strongest class by F1 | River 0.907, SeaLake 0.992 |
+
+Repeat the EuroSAT rows after any change to `model.py`, `train.py` or `data.py`, and update the
+table if a value moves by more than a quarter.
+
+## Known limits
+
+- Near-duplicates (the same scene re-encoded at another quality or crop) have different pixel
+  hashes and can still straddle the split. `kic prepare` found no exact duplicate in EuroSAT;
+  near-duplicates were not looked for. A scraped data set is far more exposed.
+- The EuroSAT split is this project's own seeded 70/15/15 split. Published results use other
+  splits, so compare with care.
+- One seed, one run: no confidence interval is reported. `--seed` makes repeating it cheap.
+- JAX on CPU is deterministic on one machine. Across machines and versions, expect the third
+  decimal to move.
+- Only the JAX backend is tested. The code uses nothing but the Keras API, so the PyTorch and
+  TensorFlow backends should work, but nothing here proves it, and no timing comparison between
+  backends has been made for this release.
+- The alternative model shapes that were tried while `model.py` was being written (fewer blocks,
+  a constant learning rate) were not re-run for 1.0.0, so this document quotes no numbers for
+  them. Only the shipped configuration is measured.
+- The decoded-image cache holds a whole split in memory: 27,000 images of 64 px are 332 MB as
+  uint8, the same count at 224 px would be 4.1 GB.
+- `images.load_rgb` takes a `max_pixels` argument, but Pillow's own decompression-bomb ceiling
+  (`Image.MAX_IMAGE_PIXELS`, 89,478,485 here) is applied first, while the header is read. So
+  `max_pixels` can tighten the limit below the project default of 50,000,000 and cannot raise it
+  past Pillow's ceiling.
