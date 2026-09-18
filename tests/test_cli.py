@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -78,3 +79,58 @@ def test_fetch_eurosat_is_wired_to_the_downloader(
     monkeypatch.setattr("keras_image_classifier.fetch.fetch_eurosat", lambda destination: 27000)
     assert main(["fetch-eurosat", str(tmp_path / "eurosat")]) == 0
     assert json.loads(capsys.readouterr().out)["images"] == 27000
+
+
+def test_train_prints_json_and_sends_progress_to_standard_error(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Keras prints one line per epoch. On standard output it would break every script that
+    # parses the JSON, as `kic train ... | jq` or `kic train ... > result.json` do.
+    assert main(["synth", str(tmp_path / "raw"), "--per-class", "8", "--size", "32"]) == 0
+    assert main(["prepare", str(tmp_path / "raw"), str(tmp_path / "p"), "--image-size", "32"]) == 0
+    assert main(["split", str(tmp_path / "p")]) == 0
+    capsys.readouterr()
+    assert main(["train", str(tmp_path / "p"), str(tmp_path / "run"), "--epochs", "1"]) == 0
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)["epochs_run"] == 1
+    assert "val_loss" in captured.err  # the per-epoch progress line
+
+
+@pytest.mark.parametrize("backend", ["tensorflow", "torch"])
+def test_a_backend_that_is_not_installed_is_explained(
+    backend: str, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def import_fails(args: object) -> object:
+        raise ModuleNotFoundError(f"No module named '{backend}'", name=backend)
+
+    monkeypatch.setenv("KERAS_BACKEND", backend)
+    monkeypatch.setattr("keras_image_classifier.cli.run", import_fails)
+    assert main(["info"]) == 2
+    captured = capsys.readouterr()
+    assert captured.err.count("\n") == 1
+    assert f"KERAS_BACKEND is '{backend}'" in captured.err
+    assert "unset KERAS_BACKEND" in captured.err
+
+
+def test_an_unrelated_missing_module_is_still_a_bug(monkeypatch: pytest.MonkeyPatch) -> None:
+    def import_fails(args: object) -> object:
+        raise ModuleNotFoundError("No module named 'yaml'", name="yaml")
+
+    monkeypatch.setattr("keras_image_classifier.cli.run", import_fails)
+    with pytest.raises(ModuleNotFoundError):
+        main(["info"])
+
+
+def test_a_foreign_backend_left_in_the_environment_is_not_a_traceback() -> None:
+    # The real thing, end to end: Keras reads KERAS_BACKEND once, at import, so this has
+    # to run in a fresh interpreter. A user coming from TensorFlow often has it set.
+    done = subprocess.run(
+        [sys.executable, "-m", "keras_image_classifier", "info"],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "KERAS_BACKEND": "tensorflow"},
+        check=False,
+    )
+    assert done.returncode == 2
+    assert done.stderr.startswith("kic: error: KERAS_BACKEND is 'tensorflow'")
+    assert "Traceback" not in done.stderr

@@ -51,7 +51,9 @@ uses only the Keras API, and JAX is the default because its wheels are far small
 (cp313), against 351.2 MB and 572.9 MB for the current TensorFlow 2.21.0 wheels. The whole
 environment here, development tools included, is 609 MB. The one TensorFlow-only convenience the coursework used,
 `image_dataset_from_directory`, is replaced by `data.py`, a 75-line `PyDataset`. Other backends
-are not tested here; set `KERAS_BACKEND` to try one.
+are not tested here. To try one, install its package into the environment first and then
+set `KERAS_BACKEND`; the variable alone, naming a package that is not installed, makes `kic`
+stop with a one-line explanation instead of a traceback.
 
 **Satellite images instead of faces.** The coursework drew on CelebA, LFW and FER-2013 and on
 photographs of people collected from the web. Face data sets carry research-only licences and

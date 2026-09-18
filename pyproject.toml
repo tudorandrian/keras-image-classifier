@@ -1,20 +1,21 @@
 [project]
 name = "keras-image-classifier"
-version = "1.0.1"
+version = "1.0.2"
 description = "Reproducible image-classification pipeline with Keras 3: prepare, split, train, evaluate, predict."
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Tudor Andrian" }]
-requires-python = ">=3.12,<3.14"
+requires-python = ">=3.12,<3.15"
 keywords = ["keras", "jax", "image-classification", "computer-vision", "reproducibility"]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 5 - Production/Stable",
     "Environment :: Console",
     "Intended Audience :: Education",
     "Intended Audience :: Science/Research",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Scientific/Engineering :: Image Recognition",
 ]
 dependencies = [

@@ -2,11 +2,11 @@
 
 A small, reproducible image-classification pipeline built on Keras 3: prepare a folder of
 images, split it without leakage, train a compact CNN, evaluate it and classify new files, all
-from one command-line tool. Version 1.0.1, stable; it started as university coursework in 2024
+from one command-line tool. Version 1.0.2, stable; it started as university coursework in 2024
 and was rewritten in 2026 (see [History](#history)).
 
 [![CI](https://github.com/tudorandrian/keras-image-classifier/actions/workflows/ci.yml/badge.svg)](https://github.com/tudorandrian/keras-image-classifier/actions/workflows/ci.yml)
-![Python 3.12 | 3.13](https://img.shields.io/badge/python-3.12%20%7C%203.13-blue)
+![Python 3.12 | 3.13 | 3.14](https://img.shields.io/badge/python-3.12%20%7C%203.13%20%7C%203.14-blue)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 
 ## What it shows
@@ -21,7 +21,7 @@ and was rewritten in 2026 (see [History](#history)).
 - No Anaconda and no TensorFlow: `uv` and a lock file, Keras 3 on the JAX backend, an
   environment of 609 MB including the development tools.
 
-## Quick start (no data download, under a minute after `uv sync`)
+## Quick start (no data download, about a minute after `uv sync`)
 
 Install [uv](https://docs.astral.sh/uv/getting-started/installation/), then:
 
@@ -37,11 +37,11 @@ uv run kic evaluate runs/shapes           # writes runs/shapes/report.md
 uv run kic predict runs/shapes data/raw/circle/circle_00001.png
 ```
 
-The six `kic` commands took 52 seconds together on the laptop described in
-[docs/testing.md](docs/testing.md) and ended at test accuracy 1.000 against a majority baseline
-of 0.333.
+The six `kic` commands took about a minute together on the laptop described in
+[docs/testing.md](docs/testing.md), and about 90 seconds the first time, while the package is
+built and JAX compiles. They ended at test accuracy 1.000 against a majority baseline of 0.333.
 
-Without uv: `python -m venv .venv`, activate it, `pip install .`, and use `kic` in place of
+Without uv, on Python 3.12, 3.13 or 3.14: `python -m venv .venv`, activate it, `pip install .`, and use `kic` in place of
 `uv run kic`. That route takes the newest versions the ranges in `pyproject.toml` allow
 instead of the locked ones.
 
@@ -138,11 +138,22 @@ directory that already has something in it, so a run you interrupt with Ctrl-C l
 directory populated and the next attempt at the same path fails with "is not empty; every run
 gets its own directory". Delete the directory, or train into a new one.
 
+`run.json` keeps the data directory exactly as you typed it for `kic train`, usually as a
+relative path, so run `kic evaluate` from the directory you trained in. From anywhere else it
+says so rather than guessing.
+
+Keras reads `KERAS_BACKEND` once, when it is first imported. This project installs and tests
+JAX only, and uses it when the variable is unset. If your shell still sets `KERAS_BACKEND` to
+`tensorflow` or `torch` from earlier work, `kic` says so in one line and stops: unset it. In
+your own Python code, import `keras_image_classifier` before `keras`, or set
+`KERAS_BACKEND=jax` yourself, because Keras on its own defaults to TensorFlow.
+
 ## Documentation
 
 - [docs/architecture.md](docs/architecture.md): data flow, modules, and the reason behind each decision
 - [docs/testing.md](docs/testing.md): test levels, what is asserted, measurements, known limits
 - [SECURITY.md](SECURITY.md): threat model and how to report a problem
+- [CONTRIBUTING.md](CONTRIBUTING.md): how to propose a change, and what a pull request must pass
 - [CHANGELOG.md](CHANGELOG.md)
 
 ## Development
@@ -152,6 +163,9 @@ uv run ruff check . && uv run ruff format --check . && uv run mypy
 uv run bandit -q -r src && uv run python scripts/check_text.py
 uv run pytest --cov            # includes a real training run
 ```
+
+The same checks run in CI on every pull request. [CONTRIBUTING.md](CONTRIBUTING.md) has the
+conventions a pull request has to follow.
 
 ## History
 

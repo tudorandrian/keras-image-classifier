@@ -9,7 +9,7 @@ tests here assert numbers, and one of them trains a real model.
 | Level | Where | Runs in CI | Network |
 | --- | --- | --- | --- |
 | Static analysis | ruff, ruff format, mypy strict, bandit, pip-audit, `scripts/check_text.py` on ubuntu-24.04; gitleaks in its own job | every push to `main`, every pull request, weekly | advisories only |
-| Unit, quantitative | `test_images.py`, `test_dataset.py`, `test_metrics.py`, `test_synth.py`, `test_fetch.py`, `test_data_and_model.py` | ubuntu-24.04 and windows-2025, Python 3.12 and 3.13 | no |
+| Unit, quantitative | `test_images.py`, `test_dataset.py`, `test_metrics.py`, `test_synth.py`, `test_fetch.py`, `test_data_and_model.py` | ubuntu-24.04 and windows-2025, Python 3.12, 3.13 and 3.14 | no |
 | End to end | `test_pipeline.py`, `test_cli.py`: synth, prepare, split, train, evaluate, predict through the command line | same matrix | no |
 | Upstream data | `-m network`: the EuroSAT archive on Zenodo still has the pinned size | weekly only | yes |
 | Benchmark | the EuroSAT run in the README | by hand, before a release | yes |
@@ -64,6 +64,14 @@ End to end, on 360 synthetic images
   an unreadable file among the inputs of `predict` yields an error record and the rest are
   still classified.
 - A `.keras` file containing a Lambda layer is refused by `load_model`.
+- Every command, `kic train` included, prints one JSON document on standard output and nothing
+  else; the per-epoch progress of `kic train` goes to standard error, so `kic train ... | jq`
+  works.
+- A `KERAS_BACKEND` naming a backend whose package is not installed stops `kic` with one line
+  and status 2. This is checked in a fresh interpreter, because Keras reads the variable only
+  once, at import.
+- `kic evaluate` run from a directory where the run's relative data path does not resolve says
+  exactly that, instead of asking for a `kic prepare` that is not needed.
 - User errors exit with status 2 and one line on standard error, never a traceback. That
   includes a damaged artefact: a truncated or hand-edited `manifest.json`, `splits.json` or
   `run.json` is a problem the user can fix, so it is a `KicError` naming the file and the
@@ -80,13 +88,13 @@ guard cannot see. Keep the `splits.json` that produced a run, or retrain.
 
 Measured on 2026-09-18: Windows 10, Intel Core i7-7700HQ (2017, 4 cores and 8 threads), 16 GB of
 memory, no GPU, Python 3.13.15, Keras 3.15.1 on JAX 0.11.1. The machine was doing other work
-during part of the EuroSAT prepare step, so treat the timings as upper bounds.
+during part of the EuroSAT prepare step, so treat that time as an upper bound.
 
 | Measure | Value |
 | --- | --- |
 | Environment from `uv sync` | 64 packages, 609 MB including the development tools |
-| Test suite, `uv run pytest --cov` | 117 tests and 1 deselected network test, about 80 s, 100 % line and branch coverage |
-| Quick start on synthetic shapes: 600 images, 48 px, 15 epochs | 52 s for all six commands, of which 17 s training; test accuracy 1.000, baseline 0.333 |
+| Test suite, `uv run pytest --cov` | 123 tests and 1 deselected network test, about 80 s, 100 % line and branch coverage |
+| Quick start on synthetic shapes: 600 images, 48 px, 15 epochs | about 60 s for all six commands (58 s measured, 22 s of it fitting), about 90 s on the first run after a fresh `uv sync`; test accuracy 1.000, baseline 0.333 |
 | Batch-norm warm-up on the same data (7 steps per epoch) | validation accuracy exactly 0.3333 through step 28, 0.3444 at step 35, 0.9333 at step 42, 1.0000 at step 49, while training accuracy is 1.0000 throughout |
 | EuroSAT prepare: decode, letterbox, hash and write 27,000 images | 2 min 39 s; 0 skipped, 0 duplicates, 0 conflicts |
 | EuroSAT training: 20 epochs, 18,900 images, 99,450 parameters | 1,357 s (23 min), 296 steps of 64 images per epoch, 229 ms per step |

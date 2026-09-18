@@ -257,3 +257,18 @@ def test_a_run_file_missing_a_field_evaluate_needs_is_refused(
     (broken / RUN_FILE).write_text(json.dumps(run))
     with pytest.raises(KicError, match=f"has no {field}; is it a run directory"):
         load_run(broken)
+
+
+def test_evaluate_explains_a_run_started_from_another_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # run.json keeps the data path as typed, usually relative. From another directory it
+    # points nowhere, and "run kic prepare first" would send the user to redo good work.
+    run = tmp_path / "run"
+    run.mkdir()
+    (run / MODEL_FILE).write_bytes(b"")
+    document = {"config": {"data": "data/shapes"}, "classes": ["a", "b"], "image_size": 32}
+    (run / RUN_FILE).write_text(json.dumps(document), encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(KicError, match="run kic evaluate from the directory"):
+        evaluate(run)

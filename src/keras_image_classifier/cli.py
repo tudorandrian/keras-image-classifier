@@ -7,12 +7,17 @@ Anything else is a bug and keeps its traceback.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
+import os
 import sys
 from collections.abc import Sequence
 from pathlib import Path
 
 from keras_image_classifier import KicError, __version__
+
+# Packages Keras imports for a backend other than JAX. This project installs JAX only.
+FOREIGN_BACKENDS = frozenset({"tensorflow", "torch"})
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -108,7 +113,10 @@ def run(args: argparse.Namespace) -> object:
             augment=not args.no_augment,
             patience=args.patience,
         )
-        summary = train(config)
+        # Keras reports progress on standard output. Standard error keeps it visible and
+        # leaves standard output as the one JSON document every command promises.
+        with contextlib.redirect_stdout(sys.stderr):
+            summary = train(config)
         keys = ("epochs_run", "best_epoch", "best_val_loss", "best_val_accuracy", "train_seconds")
         return {key: summary[key] for key in keys}
     if args.command == "evaluate":
@@ -134,6 +142,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         result = run(args)
     except KicError as error:
         print(f"kic: error: {error}", file=sys.stderr)
+        return 2
+    except ModuleNotFoundError as error:
+        # Keras reads KERAS_BACKEND once, at first import. A value left over from earlier
+        # TensorFlow or PyTorch work names a package that is not installed here.
+        if error.name not in FOREIGN_BACKENDS:
+            raise
+        backend = os.environ.get("KERAS_BACKEND", "")
+        print(
+            f"kic: error: KERAS_BACKEND is '{backend}', but {error.name} is not installed; "
+            "unset KERAS_BACKEND to use JAX, the backend this project installs and tests",
+            file=sys.stderr,
+        )
         return 2
     print(json.dumps(result, indent=1))
     return 0
