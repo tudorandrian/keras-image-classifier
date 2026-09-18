@@ -6,7 +6,7 @@ import os
 # user (environment variable) wins; otherwise use the backend this project is tested on.
 os.environ.setdefault("KERAS_BACKEND", "jax")
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 
 
 class KicError(Exception):

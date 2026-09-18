@@ -16,7 +16,7 @@ Only the latest release is supported.
 | Model files | a `.keras` file can carry Python code in a Lambda layer | models are loaded with `safe_mode=True`, and a test proves such a file is refused |
 
 The pixel limit is a ceiling, not a dial. Pillow runs its own decompression-bomb check
-(`Image.MAX_IMAGE_PIXELS`, 89,478,485 pixels in Pillow 11) while reading the same header,
+(`Image.MAX_IMAGE_PIXELS`, 89,478,485 pixels here) while reading the same header,
 before `load_rgb` looks at its own `max_pixels`, so `max_pixels` can tighten the limit but
 cannot raise it past Pillow's default. Both bands of Pillow's check, the one that raises and
 the one that only warns, are turned into the same refusal.

@@ -2,7 +2,7 @@
 
 A small, reproducible image-classification pipeline built on Keras 3: prepare a folder of
 images, split it without leakage, train a compact CNN, evaluate it and classify new files, all
-from one command-line tool. Version 1.0.0, stable; it started as university coursework in 2024
+from one command-line tool. Version 1.0.1, stable; it started as university coursework in 2024
 and was rewritten in 2026 (see [History](#history)).
 
 [![CI](https://github.com/tudorandrian/keras-image-classifier/actions/workflows/ci.yml/badge.svg)](https://github.com/tudorandrian/keras-image-classifier/actions/workflows/ci.yml)
@@ -130,7 +130,13 @@ If your images show people, you are responsible for having the right to process 
 | `kic info` | prints versions and the active Keras backend |
 
 Every command prints JSON and exits with 0, or prints one line to standard error and exits
-with 2 when the problem is one you can fix.
+with 2 when the problem is one you can fix. A truncated or hand-edited `manifest.json`,
+`splits.json` or `run.json` is one of those problems, not a crash.
+
+`kic train` creates its run directory before it starts fitting, and refuses to write into a
+directory that already has something in it, so a run you interrupt with Ctrl-C leaves that
+directory populated and the next attempt at the same path fails with "is not empty; every run
+gets its own directory". Delete the directory, or train into a new one.
 
 ## Documentation
 
@@ -154,7 +160,8 @@ Timisoara in November 2024: five interactive scripts around TensorFlow. It is pr
 the tag [`v0.1.0-coursework`](https://github.com/tudorandrian/keras-image-classifier/tree/v0.1.0-coursework).
 Version 1.0.0 keeps the idea (collect, preprocess, deduplicate, split, train, classify) and
 replaces the implementation; [CHANGELOG.md](CHANGELOG.md) lists what was wrong and what changed.
-No image file has ever been committed to this repository, in any branch or tag.
+No photograph and no data-set image has ever been committed to this repository, in any branch
+or tag; the only image it contains is the confusion matrix above.
 
 ## Related repositories
 

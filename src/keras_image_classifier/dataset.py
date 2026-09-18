@@ -13,6 +13,7 @@ import random
 import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from typing import Any
 
 from keras_image_classifier import KicError
 from keras_image_classifier.images import letterbox, load_rgb, pixel_hash
@@ -104,13 +105,49 @@ def prepare(source: Path, destination: Path, *, image_size: int) -> Manifest:
     return manifest
 
 
-def load_manifest(prepared: Path) -> Manifest:
+def read_json(path: Path, missing: str) -> dict[str, Any]:
+    """Load one JSON artefact as an object, or raise KicError saying what is wrong with it.
+
+    Artefacts are written by this tool but live in a directory the user owns, so they
+    can be truncated by a full disk, hand-edited or half-copied. That is a problem the
+    user can fix, which means KicError and exit 2, not a traceback: `cli.py` promises
+    that anything else is a bug in the tool.
+    """
     try:
-        raw = json.loads((prepared / MANIFEST).read_text(encoding="utf-8"))
+        text = path.read_text(encoding="utf-8")
     except FileNotFoundError:
-        raise KicError(f"{prepared} has no {MANIFEST}; run 'kic prepare' first") from None
-    raw["samples"] = [Sample(**sample) for sample in raw["samples"]]
-    return Manifest(**raw)
+        raise KicError(missing) from None
+    try:
+        document = json.loads(text)
+    except ValueError as error:  # json.JSONDecodeError is a ValueError
+        raise KicError(f"{path} is not valid JSON ({error}); regenerate it") from None
+    if not isinstance(document, dict):
+        raise KicError(f"{path} should hold a JSON object, found {type(document).__name__}")
+    return document
+
+
+def load_manifest(prepared: Path) -> Manifest:
+    raw = read_json(prepared / MANIFEST, f"{prepared} has no {MANIFEST}; run 'kic prepare' first")
+    try:
+        raw["samples"] = [Sample(**sample) for sample in raw["samples"]]
+        return Manifest(**raw)
+    except (KeyError, TypeError) as error:
+        raise KicError(
+            f"{prepared / MANIFEST} is not a usable manifest ({error!r}); run 'kic prepare' again"
+        ) from None
+
+
+def split_identity(prepared: Path) -> dict[str, Any]:
+    """The version, seed and ratios that say which split a splits.json is.
+
+    `train` records this triple and `evaluate` compares it, so both read it the same way
+    and a hand-edited file fails with one message instead of two different KeyErrors.
+    """
+    document = read_json(prepared / SPLITS, f"{prepared} has no {SPLITS}; run 'kic split' first")
+    try:
+        return {key: document[key] for key in ("version", "seed", "ratios")}
+    except KeyError as error:
+        raise KicError(f"{prepared / SPLITS} has no {error} field; run 'kic split' again") from None
 
 
 def split(
@@ -147,13 +184,16 @@ def split(
 def load_split(prepared: Path, name: str) -> tuple[list[str], list[int], list[str]]:
     """Return (paths, integer labels, class names) for one split."""
     manifest = load_manifest(prepared)
-    try:
-        document = json.loads((prepared / SPLITS).read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        raise KicError(f"{prepared} has no {SPLITS}; run 'kic split' first") from None
+    document = read_json(prepared / SPLITS, f"{prepared} has no {SPLITS}; run 'kic split' first")
     if name not in SPLIT_NAMES:
         raise KicError(f"unknown split {name!r}; choose from {', '.join(SPLIT_NAMES)}")
     index = {label: i for i, label in enumerate(manifest.classes)}
-    paths: list[str] = document[name]
-    labels = [index[path.split("/", 1)[0]] for path in paths]
+    try:
+        paths: list[str] = document[name]
+        labels = [index[path.split("/", 1)[0]] for path in paths]
+    except (KeyError, AttributeError, TypeError) as error:
+        raise KicError(
+            f"{prepared / SPLITS} does not list usable paths for the {name!r} split "
+            f"({error!r}); run 'kic split' again"
+        ) from None
     return paths, labels, manifest.classes

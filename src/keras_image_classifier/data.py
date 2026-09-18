@@ -63,8 +63,9 @@ class ImageBatches(keras.utils.PyDataset):  # type: ignore[misc]
         pixels = np.stack([self._pixels(int(i)) for i in chosen]).astype(np.float32)
         if self.augment:
             # Horizontal flips, decided by (seed, epoch, batch): cheap, and the same run
-            # sees the same flips again. Measured on CPU, the equivalent Keras layer
-            # cost about 40 % of a training step.
+            # sees the same flips again. Doing it here instead of with a
+            # keras.layers.RandomFlip also keeps the saved model free of training-only
+            # layers, so what is served is what was validated.
             rng = np.random.default_rng((self.seed, self.epoch, batch))
             mirrored = rng.random(len(chosen)) < 0.5
             pixels[mirrored] = pixels[mirrored, :, ::-1]

@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from keras_image_classifier import KicError, __version__
-from keras_image_classifier.dataset import SPLITS, load_manifest, load_split
+from keras_image_classifier.dataset import load_manifest, load_split, read_json, split_identity
 
 MODEL_FILE = "model.keras"
 RUN_FILE = "run.json"
@@ -74,7 +74,7 @@ def train(config: TrainConfig) -> dict[str, Any]:
     manifest = load_manifest(data)
     train_paths, train_labels, classes = load_split(data, "train")
     val_paths, val_labels, _ = load_split(data, "val")
-    split_info: dict[str, Any] = json.loads((data / SPLITS).read_text(encoding="utf-8"))
+    split_info = split_identity(data)
 
     import keras
 
@@ -135,11 +135,7 @@ def train(config: TrainConfig) -> dict[str, Any]:
         "config": asdict(config),
         "classes": classes,
         "image_size": manifest.image_size,
-        "split": {
-            "version": split_info["version"],
-            "seed": split_info["seed"],
-            "ratios": split_info["ratios"],
-        },
+        "split": split_info,
         "parameters": int(model.count_params()),
         "train_samples": len(train_paths),
         "val_samples": len(val_paths),
@@ -155,12 +151,14 @@ def train(config: TrainConfig) -> dict[str, Any]:
 
 
 def load_run(run_dir: Path) -> dict[str, Any]:
-    try:
-        loaded: dict[str, Any] = json.loads((run_dir / RUN_FILE).read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        raise KicError(f"{run_dir} has no {RUN_FILE}; is it a run directory?") from None
+    loaded = read_json(run_dir / RUN_FILE, f"{run_dir} has no {RUN_FILE}; is it a run directory?")
     if not (run_dir / MODEL_FILE).is_file():
         raise KicError(f"{run_dir} has no {MODEL_FILE}")
+    # Checked here, once, so evaluate.py and predict.py can index these three without
+    # turning a hand-edited run.json into a KeyError traceback.
+    missing = [field for field in ("config", "classes", "image_size") if field not in loaded]
+    if missing:
+        raise KicError(f"{run_dir / RUN_FILE} has no {', '.join(missing)}; is it a run directory?")
     return loaded
 
 

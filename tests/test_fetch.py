@@ -269,5 +269,7 @@ def test_fetch_eurosat_cleans_up_after_a_non_kicerror_extraction_failure(
 @pytest.mark.network
 def test_the_published_archive_still_has_the_pinned_size() -> None:
     request = urllib.request.Request(fetch.EUROSAT_URL, method="HEAD")
-    with urllib.request.urlopen(request, timeout=30) as response:
+    # Through the module's own opener, so this exercises the https-only redirect handler
+    # that every real download goes through, not urllib's stock one.
+    with fetch._OPENER.open(request, timeout=30) as response:
         assert int(response.headers["Content-Length"]) == fetch.EUROSAT_BYTES
