@@ -1,0 +1,26 @@
+cff-version: 1.2.0
+message: If you use this software, please cite it as below.
+title: keras-image-classifier
+type: software
+authors:
+  - family-names: Andrian
+    given-names: Tudor
+version: 1.0.0
+date-released: "2026-09-18"
+license: MIT
+repository-code: https://github.com/tudorandrian/keras-image-classifier
+references:
+  - type: article
+    title: "EuroSAT: A Novel Dataset and Deep Learning Benchmark for Land Use and Land Cover Classification"
+    authors:
+      - family-names: Helber
+        given-names: Patrick
+      - family-names: Bischke
+        given-names: Benjamin
+      - family-names: Dengel
+        given-names: Andreas
+      - family-names: Borth
+        given-names: Damian
+    journal: IEEE Journal of Selected Topics in Applied Earth Observations and Remote Sensing
+    year: 2019
+    doi: 10.1109/JSTARS.2019.2918242

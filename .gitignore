@@ -14,7 +14,7 @@ build/
 htmlcov/
 
 # Data and training runs never belong in git. Patterns, not file names:
-# the coursework .gitignore listed 509 individual image files.
+# the coursework .gitignore was 488 lines, 485 of them individual image files.
 data/
 runs/
 *.keras
