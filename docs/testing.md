@@ -64,7 +64,10 @@ End to end, on 360 synthetic images
   an unreadable file among the inputs of `predict` yields an error record and the rest are
   still classified.
 - A `.keras` file containing a Lambda layer is refused by `load_model`.
-- User errors exit with status 2 and one line on standard error, never a traceback.
+- User errors exit with status 2 and one line on standard error, never a traceback. That
+  includes a damaged artefact: a truncated or hand-edited `manifest.json`, `splits.json` or
+  `run.json` is a problem the user can fix, so it is a `KicError` naming the file and the
+  missing or unparsable part, not a `JSONDecodeError` or `KeyError` traceback.
 
 What `evaluate` does and does not catch is worth stating exactly, because it is easy to read as
 more than it is. Before scoring, it compares the prepared set's class list and image size, and
@@ -82,7 +85,7 @@ during part of the EuroSAT prepare step, so treat the timings as upper bounds.
 | Measure | Value |
 | --- | --- |
 | Environment from `uv sync` | 64 packages, 609 MB including the development tools |
-| Test suite, `uv run pytest --cov` | 100 tests and 1 deselected network test, 67 s, 100 % line and branch coverage |
+| Test suite, `uv run pytest --cov` | 117 tests and 1 deselected network test, about 80 s, 100 % line and branch coverage |
 | Quick start on synthetic shapes: 600 images, 48 px, 15 epochs | 52 s for all six commands, of which 17 s training; test accuracy 1.000, baseline 0.333 |
 | Batch-norm warm-up on the same data (7 steps per epoch) | validation accuracy exactly 0.3333 through step 28, 0.3444 at step 35, 0.9333 at step 42, 1.0000 at step 49, while training accuracy is 1.0000 throughout |
 | EuroSAT prepare: decode, letterbox, hash and write 27,000 images | 2 min 39 s; 0 skipped, 0 duplicates, 0 conflicts |

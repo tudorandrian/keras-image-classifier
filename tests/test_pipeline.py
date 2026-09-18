@@ -24,6 +24,7 @@ from keras_image_classifier.train import (
     RUN_FILE,
     TrainConfig,
     load_model,
+    load_run,
     train,
 )
 
@@ -229,3 +230,30 @@ def test_predict_checks_top_k_and_the_model_file(trained: dict[str, Path], tmp_p
     (tmp_path / RUN_FILE).write_text("{}")
     with pytest.raises(KicError, match=f"has no {MODEL_FILE}"):
         predict(tmp_path, [])
+
+
+def test_a_truncated_run_file_is_a_user_error_not_a_traceback(
+    trained: dict[str, Path], tmp_path: Path
+) -> None:
+    """run.json lives in a directory the user owns; a half-written one must exit 2."""
+    broken = tmp_path / "broken"
+    broken.mkdir()
+    (broken / MODEL_FILE).write_bytes((trained["run"] / MODEL_FILE).read_bytes())
+    whole = (trained["run"] / RUN_FILE).read_text()
+    (broken / RUN_FILE).write_text(whole[: len(whole) // 2])
+    with pytest.raises(KicError, match=f"{RUN_FILE} is not valid JSON"):
+        load_run(broken)
+
+
+@pytest.mark.parametrize("field", ["config", "classes", "image_size"])
+def test_a_run_file_missing_a_field_evaluate_needs_is_refused(
+    trained: dict[str, Path], tmp_path: Path, field: str
+) -> None:
+    broken = tmp_path / f"broken-{field}"
+    broken.mkdir()
+    (broken / MODEL_FILE).write_bytes((trained["run"] / MODEL_FILE).read_bytes())
+    run = json.loads((trained["run"] / RUN_FILE).read_text())
+    del run[field]
+    (broken / RUN_FILE).write_text(json.dumps(run))
+    with pytest.raises(KicError, match=f"has no {field}; is it a run directory"):
+        load_run(broken)

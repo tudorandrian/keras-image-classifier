@@ -47,9 +47,9 @@ itself. A plain `pip install .` in a virtual environment works as well, without 
 
 **Keras 3 on JAX instead of TensorFlow.** Keras 3 runs on JAX, PyTorch or TensorFlow. The code
 uses only the Keras API, and JAX is the default because its wheels are far smaller: on PyPI the
-`jaxlib` 0.11.2 wheel is 74 MB for Windows and 90 MB for Linux x86_64, against 351 MB and 573 MB
-for the matching TensorFlow 2.21.0 wheels. The whole environment here, development tools
-included, is 609 MB. The one TensorFlow-only convenience the coursework used,
+`jaxlib` 0.11.1 wheel that `uv.lock` pins is 68.5 MB for Windows and 87.9 MB for Linux x86_64
+(cp313), against 351.2 MB and 572.9 MB for the current TensorFlow 2.21.0 wheels. The whole
+environment here, development tools included, is 609 MB. The one TensorFlow-only convenience the coursework used,
 `image_dataset_from_directory`, is replaced by `data.py`, a 75-line `PyDataset`. Other backends
 are not tested here; set `KERAS_BACKEND` to try one.
 

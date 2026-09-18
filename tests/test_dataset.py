@@ -16,6 +16,7 @@ from keras_image_classifier.dataset import (
     prepare,
     scan_classes,
     split,
+    split_identity,
 )
 
 
@@ -155,3 +156,85 @@ def test_split_refuses_ratios_that_leave_no_training_data(raw: Path, tmp_path: P
     prepare(raw, tmp_path / "out", image_size=24)
     with pytest.raises(KicError, match="class 'square' is too small"):
         split(tmp_path / "out", ratios=(0.1, 0.45, 0.45))  # 4 images: 2 val + 2 test, 0 train
+
+
+def test_a_truncated_manifest_is_a_user_error_not_a_traceback(raw: Path, tmp_path: Path) -> None:
+    """A half-written artefact must exit 2 with a message, not raise JSONDecodeError."""
+    prepare(raw, tmp_path / "out", image_size=24)
+    whole = (tmp_path / "out" / MANIFEST).read_text()
+    (tmp_path / "out" / MANIFEST).write_text(whole[: len(whole) // 2])
+    with pytest.raises(KicError, match=f"{MANIFEST} is not valid JSON"):
+        split(tmp_path / "out")
+
+
+def test_a_manifest_that_is_not_an_object_is_refused(raw: Path, tmp_path: Path) -> None:
+    prepare(raw, tmp_path / "out", image_size=24)
+    (tmp_path / "out" / MANIFEST).write_text("[1, 2, 3]")
+    with pytest.raises(KicError, match="should hold a JSON object, found list"):
+        load_manifest(tmp_path / "out")
+
+
+@pytest.mark.parametrize(
+    "document",
+    ['{"image_size": 24, "classes": []}', '{"samples": [{"nonsense": 1}]}', '{"samples": 7}'],
+)
+def test_a_manifest_missing_its_fields_is_refused(raw: Path, tmp_path: Path, document: str) -> None:
+    prepare(raw, tmp_path / "out", image_size=24)
+    (tmp_path / "out" / MANIFEST).write_text(document)
+    with pytest.raises(KicError, match="is not a usable manifest"):
+        load_manifest(tmp_path / "out")
+
+
+def test_a_truncated_splits_file_is_a_user_error(raw: Path, tmp_path: Path) -> None:
+    prepare(raw, tmp_path / "out", image_size=24)
+    split(tmp_path / "out")
+    (tmp_path / "out" / SPLITS).write_text('{"train": [')
+    with pytest.raises(KicError, match=f"{SPLITS} is not valid JSON"):
+        load_split(tmp_path / "out", "train")
+
+
+@pytest.mark.parametrize("field", ["version", "seed", "ratios"])
+def test_split_identity_names_the_field_that_is_missing(
+    raw: Path, tmp_path: Path, field: str
+) -> None:
+    prepare(raw, tmp_path / "out", image_size=24)
+    split(tmp_path / "out")
+    document = json.loads((tmp_path / "out" / SPLITS).read_text())
+    del document[field]
+    (tmp_path / "out" / SPLITS).write_text(json.dumps(document))
+    with pytest.raises(KicError, match=f"has no '{field}' field"):
+        split_identity(tmp_path / "out")
+
+
+def test_split_identity_is_the_triple_train_records(raw: Path, tmp_path: Path) -> None:
+    prepare(raw, tmp_path / "out", image_size=24)
+    split(tmp_path / "out", seed=3)
+    assert split_identity(tmp_path / "out") == {
+        "version": 1,
+        "seed": 3,
+        "ratios": [0.7, 0.15, 0.15],
+    }
+
+
+@pytest.mark.parametrize(
+    "document",
+    ['{"version": 1, "seed": 0, "ratios": []}', '{"train": "not a list", "val": [], "test": []}'],
+)
+def test_a_splits_file_without_usable_paths_is_refused(
+    raw: Path, tmp_path: Path, document: str
+) -> None:
+    prepare(raw, tmp_path / "out", image_size=24)
+    split(tmp_path / "out")
+    (tmp_path / "out" / SPLITS).write_text(document)
+    with pytest.raises(KicError, match="does not list usable paths for the 'train' split"):
+        load_split(tmp_path / "out", "train")
+
+
+def test_a_splits_file_naming_an_unknown_class_is_refused(raw: Path, tmp_path: Path) -> None:
+    prepare(raw, tmp_path / "out", image_size=24)
+    split(tmp_path / "out")
+    (tmp_path / "out" / SPLITS).write_text(
+        json.dumps({"version": 1, "seed": 0, "ratios": [0.7, 0.15, 0.15], "train": ["ghost/a.png"]})
+    )
+    with pytest.raises(KicError, match="does not list usable paths for the 'train' split"):
+        load_split(tmp_path / "out", "train")

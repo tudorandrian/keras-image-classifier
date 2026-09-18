@@ -3,6 +3,45 @@
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 uses [Semantic Versioning](https://semver.org/).
 
+## [1.0.1] - 2026-09-18
+
+Corrections found by a review of the 1.0.0 branch. No behaviour of the pipeline changes; the
+EuroSAT numbers in the README are from the same run and are unchanged.
+
+### Fixed
+
+- **A claim in the README was false and has been corrected.** The History section said "No image
+  file has ever been committed to this repository, in any branch or tag". That is refuted by one
+  command, `git log --all --diff-filter=A --name-only -- '*.png'`, which returns
+  `docs/results/eurosat/confusion_matrix.png`, added by the 1.0.0 documentation commit and
+  rendered in the README itself. The sentence now says what was actually meant and is true: no
+  photograph and no data-set image has ever been committed, and the confusion matrix is the only
+  image in the repository.
+- A malformed, truncated or hand-edited `manifest.json`, `splits.json` or `run.json` produced a
+  raw `JSONDecodeError` or `KeyError` traceback and exit 1, which contradicted the contract
+  stated in `cli.py` and in the README: `KicError` and exit 2 for a problem the user can fix,
+  anything else is a bug in the tool. These artefacts are now read through
+  `dataset.read_json`, and `dataset.split_identity` and `train.load_run` name the file and the
+  missing field. 17 tests cover the new paths.
+- `SECURITY.md` attributed Pillow's `MAX_IMAGE_PIXELS` ceiling to "Pillow 11" while the lock
+  ships Pillow 12.3.0. The number was right in both; the label is gone.
+- `docs/architecture.md` quoted wheel sizes for jaxlib 0.11.2 while `uv.lock` pins 0.11.1. It now
+  quotes the pinned version: 68.5 MB for Windows and 87.9 MB for Linux x86_64.
+- The opt-in network test called `urllib.request.urlopen` instead of `fetch._OPENER.open`, so it
+  did not exercise the module's own https-only redirect handler. A regression from the fetch
+  hardening work.
+- A comment in `data.py` claimed the equivalent Keras layer "cost about 40 % of a training
+  step". No such measurement exists in this repository, and `docs/architecture.md` refuses to
+  quote numbers for variants that were not re-run. The figure is removed; the design reason
+  stays.
+
+### Added
+
+- `README.md` explains how to recover from an interrupted `kic train`: the run directory is
+  created before fitting, so delete it or choose a new one.
+- `.gitignore` lists `.superpowers/` instead of relying on a tool-generated ignore file inside
+  that directory.
+
 ## [1.0.0] - 2026-09-18
 
 A rewrite of the 2024 coursework. The idea is unchanged; every file is new.
@@ -42,8 +81,8 @@ A rewrite of the 2024 coursework. The idea is unchanged; every file is new.
 - Content-hash deduplication, conflict detection, seeded stratified split without file copies.
 - Run records (`run.json`, `history.csv`), evaluation report with baseline, per-class metrics
   and confusion matrix.
-- 100 tests plus one opt-in network test, including a real training run, mypy strict, ruff, bandit, pip-audit, gitleaks,
-  CI on Linux and Windows for Python 3.12 and 3.13.
+- 100 tests plus one opt-in network test, including a real training run, mypy strict, ruff,
+  bandit, pip-audit, gitleaks, CI on Linux and Windows for Python 3.12 and 3.13.
 - README, architecture and testing notes, a EuroSAT benchmark under `docs/results/`,
   SECURITY.md, CITATION.cff, MIT licence.
 
@@ -56,5 +95,6 @@ A rewrite of the 2024 coursework. The idea is unchanged; every file is new.
 
 The coursework as submitted, kept under the tag `v0.1.0-coursework`.
 
+[1.0.1]: https://github.com/tudorandrian/keras-image-classifier/releases/tag/v1.0.1
 [1.0.0]: https://github.com/tudorandrian/keras-image-classifier/releases/tag/v1.0.0
 [0.1.0-coursework]: https://github.com/tudorandrian/keras-image-classifier/tree/v0.1.0-coursework
