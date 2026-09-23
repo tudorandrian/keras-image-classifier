@@ -21,10 +21,6 @@ runs/
 *.h5
 *.zip
 
-# Plan working files. Kept out of git by this repository's own rule, not only by a
-# tool-generated ignore file inside the directory.
-.superpowers/
-
 # Editors and operating systems
 .idea/
 .vscode/
