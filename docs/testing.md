@@ -103,9 +103,10 @@ the files it describes, which is a new data set rather than a damaged one.
 
 ## Reference measurements
 
-Measured on 2026-09-23: Windows 10, Intel Core i7-7700HQ (2017, 4 cores and 8 threads), 16 GB of
-memory, no GPU, Python 3.13.15, Keras 3.15.1 on JAX 0.11.1. The machine was doing other light
-work during part of the EuroSAT prepare step, so treat that time as an upper bound.
+Measured on 2026-09-23 on a CPU, with no GPU: Python 3.13.15, Keras 3.15.1 on JAX 0.11.1. All
+timings come from the same computer, so compare them with each other rather than with your own.
+The machine was doing other light work during part of the EuroSAT prepare step, so treat that
+time as an upper bound.
 
 | Measure | Value |
 | --- | --- |

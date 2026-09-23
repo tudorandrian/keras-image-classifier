@@ -37,7 +37,7 @@ uv run kic evaluate runs/shapes           # writes runs/shapes/report.md
 uv run kic predict runs/shapes data/raw/circle/circle_00001.png
 ```
 
-The six `kic` commands took about a minute together on the laptop described in
+The six `kic` commands took about a minute together on the CPU used for
 [docs/testing.md](docs/testing.md), and about 90 seconds the first time, while the package is
 built and JAX compiles. They ended at test accuracy 1.000 against a majority baseline of 0.333.
 
@@ -89,11 +89,11 @@ uv run kic evaluate runs/eurosat
 | Macro F1 | 0.9473 |
 | Majority-class baseline | 0.1111 |
 | Weakest class | River, F1 0.907 |
-| Training | 20 epochs, 1,261.6 s (21 minutes) on a 4-core laptop CPU from 2017, no GPU |
+| Training | 20 epochs, 1,261.6 s (21 minutes) on a CPU, no GPU |
 
 ![Confusion matrix](docs/results/eurosat/confusion_matrix.png)
 
-The numbers come from one run with seed 0 on a laptop CPU; the full report, with per-class
+The numbers come from one run with seed 0 on a CPU; the full report, with per-class
 figures, is in [docs/results/eurosat/report.md](docs/results/eurosat/report.md), and the exact
 configuration and library versions that produced it are in
 [docs/results/eurosat/run.json](docs/results/eurosat/run.json). The network has 99,450
