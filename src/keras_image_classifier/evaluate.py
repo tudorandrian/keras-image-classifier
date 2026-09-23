@@ -17,7 +17,7 @@ from keras_image_classifier.dataset import (
     split_identity,
 )
 from keras_image_classifier.metrics import IntMatrix, confusion_matrix, report
-from keras_image_classifier.train import RUN_FILE, load_model, load_run
+from keras_image_classifier.train import CACHE_BUDGET_BYTES, RUN_FILE, load_model, load_run
 
 METRICS_FILE = "metrics.json"
 REPORT_FILE = "report.md"
@@ -60,6 +60,11 @@ def evaluate(run_dir: Path, *, split: str = "test", batch_size: int = 128) -> di
     from keras_image_classifier.data import ImageBatches
 
     model = load_model(run_dir)
+    # Same rule `train` applies to train plus val: below the budget, keep every decoded
+    # image in memory so a re-run of `evaluate` does not decode the split again for
+    # nothing; above it, decode on demand instead of risking the machine's memory.
+    pixels_per_image = manifest.image_size * manifest.image_size * 3
+    cache = len(samples) * pixels_per_image <= CACHE_BUDGET_BYTES
     batches = ImageBatches(
         data,
         paths,
@@ -67,6 +72,7 @@ def evaluate(run_dir: Path, *, split: str = "test", batch_size: int = 128) -> di
         batch_size=batch_size,
         shuffle=False,
         digests=[s.sha256 for s in samples],
+        cache=cache,
     )
     batches.verify()
     probabilities = model.predict(batches, verbose=0)

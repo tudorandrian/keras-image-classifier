@@ -325,6 +325,21 @@ def test_a_manifest_sample_prepare_would_not_have_written_is_refused(
         load_manifest(tmp_path / "out")
 
 
+def test_a_manifest_listing_the_same_picture_twice_is_refused(raw: Path, tmp_path: Path) -> None:
+    prepare(raw, tmp_path / "out", image_size=24)
+    manifest_path = tmp_path / "out" / MANIFEST
+    document = json.loads(manifest_path.read_text())
+    circle = next(s for s in document["samples"] if s["label"] == "circle")
+    duplicate = dict(circle)
+    duplicate["path"] = f"square/{circle['sha256'][:16]}.png"
+    duplicate["label"] = "square"
+    shutil.copy(tmp_path / "out" / circle["path"], tmp_path / "out" / duplicate["path"])
+    document["samples"].append(duplicate)
+    manifest_path.write_text(json.dumps(document))
+    with pytest.raises(KicError, match="lists the same picture twice"):
+        load_manifest(tmp_path / "out")
+
+
 @pytest.mark.parametrize("bad_name", ["..", 7])
 def test_a_manifest_class_name_that_is_not_allowed_is_refused(
     raw: Path, tmp_path: Path, bad_name: object
@@ -350,12 +365,44 @@ def test_split_digest_is_the_hash_of_the_members_in_order(raw: Path, tmp_path: P
     _, splits = load_splits(tmp_path / "out")
     expected = hashlib.sha256(
         json.dumps(
-            {name: [s.sha256 for s in splits[name]] for name in ("train", "val", "test")},
+            {name: [[s.path, s.sha256] for s in splits[name]] for name in ("train", "val", "test")},
             separators=(",", ":"),
         ).encode()
     ).hexdigest()
     assert split_digest(tmp_path / "out") == expected
     assert len(expected) == 64
+
+
+def test_split_digest_changes_when_a_sample_is_relabelled(raw: Path, tmp_path: Path) -> None:
+    """A sample's path carries its label, so relabelling it must move the digest too.
+
+    Otherwise a splits.json edited to move one sample from class A to class B, at the
+    same position in the split and with the same content, would score exactly as the
+    run that trained on the original labels.
+    """
+    prepare(raw, tmp_path / "out", image_size=24)
+    split(tmp_path / "out")
+    before = split_digest(tmp_path / "out")
+
+    manifest_path = tmp_path / "out" / MANIFEST
+    document = json.loads(manifest_path.read_text())
+    victim = next(s for s in document["samples"] if s["label"] == "circle")
+    old_path = victim["path"]
+    new_path = f"square/{victim['sha256'][:16]}.png"
+    (tmp_path / "out" / old_path).rename(tmp_path / "out" / new_path)
+    victim["path"] = new_path
+    victim["label"] = "square"
+    manifest_path.write_text(json.dumps(document))
+
+    splits_path = tmp_path / "out" / SPLITS
+    splits_document = json.loads(splits_path.read_text())
+    for name in ("train", "val", "test"):
+        splits_document[name] = [
+            new_path if path == old_path else path for path in splits_document[name]
+        ]
+    splits_path.write_text(json.dumps(splits_document))
+
+    assert split_digest(tmp_path / "out") != before
 
 
 def test_split_digest_changes_with_the_seed_and_not_with_file_names(

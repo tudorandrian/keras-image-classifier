@@ -105,6 +105,28 @@ def test_the_cache_can_be_switched_off(train_split: tuple[Path, list[str], list[
     assert batches.cache == {}
 
 
+def test_a_jpeg_saved_under_the_expected_png_name_is_refused(
+    train_split: tuple[Path, list[str], list[int]],
+) -> None:
+    root, paths, labels = train_split
+    with Image.open(root / paths[0]) as image:
+        rgb = image.convert("RGB")
+    rgb.save(root / paths[0], format="JPEG")  # same name, wrong container
+    batches = ImageBatches(root, paths, labels, batch_size=16, shuffle=False)
+    with pytest.raises(KicError, match=f"{re.escape(paths[0])}.*cannot be read"):
+        batches.verify()
+
+
+def test_a_decompression_bomb_is_refused(
+    train_split: tuple[Path, list[str], list[int]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 4)
+    root, paths, labels = train_split
+    batches = ImageBatches(root, paths, labels, batch_size=16, shuffle=False)
+    with pytest.raises(KicError, match=f"{re.escape(paths[0])}.*cannot be read"):
+        batches.verify()
+
+
 def test_a_prepared_file_that_disappeared_is_a_user_error(
     train_split: tuple[Path, list[str], list[int]],
 ) -> None:

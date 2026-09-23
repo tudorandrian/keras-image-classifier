@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -68,9 +69,21 @@ class ImageBatches(keras.utils.PyDataset):  # type: ignore[misc]
             return self.cache[index]
         path = self.paths[index]
         try:
-            with Image.open(self.root / path) as image:
-                rgb = image.convert("RGB")
-        except OSError as error:  # missing, unreadable, or not an image any more
+            # `prepare` only ever writes PNG, so a file that decodes as anything else was
+            # changed after the fact; formats=["PNG"] refuses it up front instead of
+            # trusting whatever container it now has. Pillow's own decompression-bomb
+            # ceiling runs inside Image.open, ahead of any check of ours, and can either
+            # raise outright or only warn one size band lower (see images.load_rgb); the
+            # warning is turned into an error here too, so both bands are always refused.
+            with warnings.catch_warnings():
+                warnings.simplefilter("error", Image.DecompressionBombWarning)
+                with Image.open(self.root / path, formats=["PNG"]) as image:
+                    rgb = image.convert("RGB")
+        except (
+            OSError,  # missing, unreadable, or not a PNG any more
+            Image.DecompressionBombError,
+            Image.DecompressionBombWarning,
+        ) as error:
             raise KicError(
                 f"'{path}' in {self.root} cannot be read ({type(error).__name__}); "
                 "run 'kic prepare' again"

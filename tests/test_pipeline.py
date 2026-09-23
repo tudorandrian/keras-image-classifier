@@ -378,6 +378,15 @@ def test_predict_still_works_with_a_run_from_an_earlier_version(
     assert records[0]["predictions"][0]["label"] == "square"
 
 
+def test_evaluate_scores_correctly_with_the_cache_turned_off(
+    trained: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    baseline = evaluate(trained["run"])
+    monkeypatch.setattr("keras_image_classifier.evaluate.CACHE_BUDGET_BYTES", 1)
+    result = evaluate(trained["run"])
+    assert result["accuracy"] == baseline["accuracy"]
+
+
 def test_the_cache_is_switched_off_above_the_budget(
     trained: dict[str, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

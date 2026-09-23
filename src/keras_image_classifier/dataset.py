@@ -147,6 +147,7 @@ def load_manifest(prepared: Path) -> Manifest:
     for name in manifest.classes:
         if not isinstance(name, str) or not CLASS_NAME.fullmatch(name):
             raise KicError(f"{prepared / MANIFEST}: class name {name!r} is not allowed")
+    seen_hashes: set[str] = set()
     for sample in manifest.samples:
         message = (
             f"{prepared / MANIFEST} lists {sample.path!r}, which 'kic prepare' would not "
@@ -159,6 +160,15 @@ def load_manifest(prepared: Path) -> Manifest:
         expected = f"{sample.label}/{sample.sha256[:16]}.png"
         if sample.label not in manifest.classes or sample.path != expected:
             raise KicError(message)
+        # `prepare` keeps one copy of a duplicate; a manifest that lists the same content
+        # hash twice was hand-edited (or copied) after the fact, and would let one picture
+        # count twice in a split or straddle train and test under two different labels.
+        if sample.sha256 in seen_hashes:
+            raise KicError(
+                f"{prepared / MANIFEST} lists the same picture twice ({sample.sha256}); "
+                "run 'kic prepare' again"
+            )
+        seen_hashes.add(sample.sha256)
     return manifest
 
 
@@ -214,14 +224,18 @@ def load_splits(prepared: Path) -> tuple[Manifest, dict[str, list[Sample]]]:
 
 
 def split_digest(prepared: Path) -> str:
-    """SHA-256 over the content hashes of all three splits, in order.
+    """SHA-256 over each split's [path, content hash] pairs, in order.
 
     `train` records it and `evaluate` compares it, so a run is tied to the exact
-    images it saw, not only to the seed and ratios that were meant to produce them.
+    images and labels it saw, not only to the seed and ratios that were meant to
+    produce them. The path is included, not only the content hash, because the label
+    is the first path component: relabelling a sample without touching its pixels
+    must still change the digest, or a run could be scored against labels it never saw.
     """
     _, splits = load_splits(prepared)
     text = json.dumps(
-        {name: [s.sha256 for s in splits[name]] for name in SPLIT_NAMES}, separators=(",", ":")
+        {name: [[s.path, s.sha256] for s in splits[name]] for name in SPLIT_NAMES},
+        separators=(",", ":"),
     )
     return hashlib.sha256(text.encode()).hexdigest()
 
