@@ -34,3 +34,6 @@ Thumbs.db
 # Local environment files
 .env
 .env.*
+
+# Local review notes, kept out of the public repository
+AUDIT_REPORT.md
