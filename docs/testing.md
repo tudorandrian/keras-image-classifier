@@ -30,6 +30,11 @@ Data preparation
   disk match the manifest exactly.
 - The split is stratified (3 of 20 per class in validation and in test), disjoint and complete;
   renaming every source file does not change it; another seed does.
+- `splits.json` entries must be manifest paths and appear once; `circle/../../x.png`, a path in
+  two splits, or a path twice in one split is refused naming the entry and the split.
+- `manifest.json` samples must be exactly `<label>/<sha256[:16]>.png` with an allowed class
+  name; anything else is refused as something `kic prepare` would not have written.
+- `kic synth` refuses a non-empty directory.
 
 Untrusted archives and downloads
 
@@ -51,6 +56,11 @@ Model and loader
   Flatten layer. Outputs sum to 1. The first layer rescales, so the loader must deliver 0-255.
 - Shuffling is seeded and changes each epoch; augmentation produces only the image or its
   mirror, and is wired to the training split only; decoded images are cached.
+- The loader compares every decoded image with its manifest hash; a one-pixel edit is refused
+  before training or scoring starts, and a deleted file is a user error, not a traceback.
+- `kic predict` on seven files with a batch size of three calls the model with 3, 3 and 1 images.
+- Above `CACHE_BUDGET_BYTES` (2 GiB of decoded uint8 pixels for train plus val), `train` turns
+  the cache off and records `"cached_in_memory": false`.
 
 End to end, on 360 synthetic images
 
@@ -77,12 +87,14 @@ End to end, on 360 synthetic images
   `run.json` is a problem the user can fix, so it is a `KicError` naming the file and the
   missing or unparsable part, not a `JSONDecodeError` or `KeyError` traceback.
 
-What `evaluate` does and does not catch is worth stating exactly, because it is easy to read as
-more than it is. Before scoring, it compares the prepared set's class list and image size, and
-the split's version, seed and ratios, with the values recorded in `run.json`, and refuses to go
-on if either differs. It does **not** hash split membership. A prepared set rebuilt from changed
-raw data under the same seed and the same ratios produces a different membership that this
-guard cannot see. Keep the `splits.json` that produced a run, or retrain.
+What `evaluate` checks before scoring, in order: the prepared set's class list and image size
+against `run.json`; the split's version, seed and ratios; then `split_digest`, the SHA-256 over
+the content hashes of all three splits in order, against the value `train` recorded; then every
+file of the split against the hash `kic prepare` wrote into `manifest.json`. A test list
+refilled from training images, a prepared set rebuilt from other raw data under the same seed,
+and a PNG edited after preparation are each refused with one line. What is still not covered:
+near-duplicates across splits (see Known limits), and a `manifest.json` rewritten together with
+the files it describes, which is a new data set rather than a damaged one.
 
 ## Reference measurements
 
@@ -121,7 +133,8 @@ table if a value moves by more than a quarter.
   a constant learning rate) were not re-run for 1.0.0, so this document quotes no numbers for
   them. Only the shipped configuration is measured.
 - The decoded-image cache holds a whole split in memory: 27,000 images of 64 px are 332 MB as
-  uint8, the same count at 224 px would be 4.1 GB.
+  uint8, the same count at 224 px would be 4.1 GB. Above `CACHE_BUDGET_BYTES` (2 GiB for train
+  plus val) the cache is turned off and training decodes each image again every epoch.
 - `images.load_rgb` takes a `max_pixels` argument, but Pillow's own decompression-bomb ceiling
   (`Image.MAX_IMAGE_PIXELS`, 89,478,485 here) is applied first, while the header is read. So
   `max_pixels` can tighten the limit below the project default of 50,000,000 and cannot raise it

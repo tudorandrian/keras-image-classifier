@@ -3,6 +3,36 @@
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 uses [Semantic Versioning](https://semver.org/).
 
+## [1.1.0] - 2026-09-23
+
+An integrity release, from a review of the 1.0.2 code: a saved run is now tied to the exact
+images it was trained and evaluated on. The EuroSAT numbers below were measured again with this
+version; see the README.
+
+### Changed
+
+- `run.json` records `split_digest`, the SHA-256 over the content hashes of all three splits in
+  order, and `cached_in_memory`. `kic evaluate` compares the digest and refuses a run directory
+  written by 1.0.x, which has none; retrain to evaluate such a run.
+- `kic synth` refuses a non-empty destination, as `prepare` and `train` already did. Running it
+  twice into the same directory used to keep the old files and report only the new count.
+- GitHub Actions are pinned to commit SHAs instead of tags.
+
+### Fixed
+
+- `splits.json` was trusted as written: an entry such as `circle/../../x.png` kept a valid
+  label and opened a file outside the prepared directory, and a test list refilled from training
+  paths passed the seed-and-ratios check and was scored as held out. Every entry must now be a
+  manifest path and appear exactly once across the three splits.
+- `manifest.json` paths are checked to be the ones `kic prepare` writes, and every prepared file
+  is compared with its recorded pixel hash before training or scoring.
+- `kic predict` stacked every decoded input before inference; it now runs batches of 128.
+- The decoded-image cache is turned off above 2 GiB of pixels for train plus val.
+
+### Benchmark
+
+- EuroSAT, re-measured with 1.1.0: BENCHMARK_PENDING
+
 ## [1.0.2] - 2026-09-18
 
 Fixes found by installing the project from a fresh clone and following the README the way a new
@@ -135,6 +165,7 @@ A rewrite of the 2024 coursework. The idea is unchanged; every file is new.
 
 The coursework as submitted, kept under the tag `v0.1.0-coursework`.
 
+[1.1.0]: https://github.com/tudorandrian/keras-image-classifier/releases/tag/v1.1.0
 [1.0.2]: https://github.com/tudorandrian/keras-image-classifier/releases/tag/v1.0.2
 [1.0.1]: https://github.com/tudorandrian/keras-image-classifier/releases/tag/v1.0.1
 [1.0.0]: https://github.com/tudorandrian/keras-image-classifier/releases/tag/v1.0.0

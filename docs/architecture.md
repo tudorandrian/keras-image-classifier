@@ -64,7 +64,9 @@ on a laptop CPU. The pipeline itself accepts any folder-per-class directory.
 `test/` invites the two classic errors: a file in two places, and a split that changes when the
 file system lists names in another order. Here a picture is identified by the SHA-256 of its
 decoded pixels, duplicates are removed before splitting, a picture found under two labels is
-dropped, and the split depends on the hashes and the seed alone.
+dropped, and the split depends on the hashes and the seed alone. Because the list is a plain
+file, `train` records a digest of its members' content hashes and `evaluate` compares it, and
+both check every prepared file against the manifest before they start.
 
 **Global average pooling.** The coursework network flattened a 26 x 26 x 128 feature map into a
 128-unit Dense layer: 11,075,712 of its 11,169,347 parameters sat in that one layer. The
