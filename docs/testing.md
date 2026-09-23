@@ -110,7 +110,7 @@ work during part of the EuroSAT prepare step, so treat that time as an upper bou
 | Measure | Value |
 | --- | --- |
 | Environment from `uv sync` | 64 packages, 609 MB including the development tools |
-| Test suite, `uv run pytest --cov` | 154 tests and 1 deselected network test, 180 s measured on a busy machine (other processes at 63 % CPU load beforehand; treat as an upper bound), 100 % line and branch coverage |
+| Test suite, `uv run pytest --cov` | 153 tests and 1 deselected network test, 100 % line and branch coverage; 87 s on an idle machine when the suite had 148 tests, 180 s and 209 s in two runs while other processes loaded the CPU |
 | Quick start on synthetic shapes: 600 images, 48 px, 15 epochs | about 50 s for all six commands (48 s measured), about 90 s on the first run after a fresh `uv sync`; test accuracy 1.000, baseline 0.333 |
 | Batch-norm warm-up on the same data (7 steps per epoch) | validation accuracy exactly 0.3333 through step 28, 0.3444 at step 35, 0.9333 at step 42, 1.0000 at step 49, while training accuracy is 1.0000 throughout |
 | EuroSAT prepare: decode, letterbox, hash and write 27,000 images | 2 min 40 s; 0 skipped, 0 duplicates, 0 conflicts |
