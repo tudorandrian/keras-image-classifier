@@ -32,5 +32,5 @@ access is the EuroSAT download from Zenodo, on request.
 ## Supply chain
 
 `uv.lock` pins every package with hashes. CI runs `pip-audit` and gitleaks on every push and
-pull request and again weekly, GitHub Actions are pinned by tag and updated by Dependabot, and
-the workflow token is read-only.
+pull request and again weekly, GitHub Actions are pinned to a full commit SHA, with the release
+tag in a comment, and Dependabot keeps both current, and the workflow token is read-only.
