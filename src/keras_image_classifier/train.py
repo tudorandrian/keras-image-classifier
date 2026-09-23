@@ -11,11 +11,21 @@ from pathlib import Path
 from typing import Any
 
 from keras_image_classifier import KicError, __version__
-from keras_image_classifier.dataset import load_manifest, load_split, read_json, split_identity
+from keras_image_classifier.dataset import (
+    load_manifest,
+    load_split,
+    read_json,
+    split_digest,
+    split_identity,
+)
 
 MODEL_FILE = "model.keras"
 RUN_FILE = "run.json"
 HISTORY_FILE = "history.csv"
+
+# Decoded uint8 images kept in memory for train plus val. Above this the loader decodes
+# every epoch instead; slower, but a large set then costs time, not the machine.
+CACHE_BUDGET_BYTES = 2 * 1024**3
 
 
 @dataclass(frozen=True)
@@ -80,6 +90,9 @@ def train(config: TrainConfig) -> dict[str, Any]:
     val_paths = [s.path for s in val_samples]
     val_labels = [index[s.label] for s in val_samples]
     split_info = split_identity(data)
+    digest = split_digest(data)
+    pixels_per_image = manifest.image_size * manifest.image_size * 3
+    cache = (len(train_samples) + len(val_samples)) * pixels_per_image <= CACHE_BUDGET_BYTES
 
     import keras
 
@@ -87,7 +100,6 @@ def train(config: TrainConfig) -> dict[str, Any]:
     from keras_image_classifier.model import BATCH_NORM_WARMUP_STEPS, build_cnn
 
     keras.utils.set_random_seed(config.seed)
-    run_dir.mkdir(parents=True, exist_ok=True)
     model = build_cnn(
         manifest.image_size,
         len(classes),
@@ -102,10 +114,23 @@ def train(config: TrainConfig) -> dict[str, Any]:
         shuffle=True,
         augment=config.augment,
         seed=config.seed,
+        digests=[s.sha256 for s in train_samples],
+        cache=cache,
     )
     validation = ImageBatches(
-        data, val_paths, val_labels, batch_size=config.batch_size, shuffle=False
+        data,
+        val_paths,
+        val_labels,
+        batch_size=config.batch_size,
+        shuffle=False,
+        digests=[s.sha256 for s in val_samples],
+        cache=cache,
     )
+    # Every file is decoded and checked here, before the run directory is created, so a
+    # prepared set changed since `kic prepare` stops with one line and no half-written run.
+    batches.verify()
+    validation.verify()
+    run_dir.mkdir(parents=True, exist_ok=True)
     # Cosine decay to zero over the planned epochs: the late, small steps are what
     # steadies a validation loss that swings from epoch to epoch at a constant rate.
     schedule = keras.optimizers.schedules.CosineDecay(
@@ -141,6 +166,8 @@ def train(config: TrainConfig) -> dict[str, Any]:
         "classes": classes,
         "image_size": manifest.image_size,
         "split": split_info,
+        "split_digest": digest,
+        "cached_in_memory": cache,
         "parameters": int(model.count_params()),
         "train_samples": len(train_paths),
         "val_samples": len(val_paths),

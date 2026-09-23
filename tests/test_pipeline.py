@@ -8,17 +8,22 @@ from __future__ import annotations
 
 import csv
 import json
+import shutil
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pytest
+from PIL import Image
 
 from keras_image_classifier import KicError
 from keras_image_classifier.cli import main
 from keras_image_classifier.data import ImageBatches
+from keras_image_classifier.dataset import SPLITS, split_digest
 from keras_image_classifier.evaluate import MATRIX_FILE, METRICS_FILE, REPORT_FILE, evaluate
 from keras_image_classifier.predict import predict
 from keras_image_classifier.train import (
+    CACHE_BUDGET_BYTES,
     HISTORY_FILE,
     MODEL_FILE,
     RUN_FILE,
@@ -267,8 +272,98 @@ def test_evaluate_explains_a_run_started_from_another_directory(
     run = tmp_path / "run"
     run.mkdir()
     (run / MODEL_FILE).write_bytes(b"")
-    document = {"config": {"data": "data/shapes"}, "classes": ["a", "b"], "image_size": 32}
+    document = {
+        "config": {"data": "data/shapes"},
+        "classes": ["a", "b"],
+        "image_size": 32,
+        "split_digest": "irrelevant",
+    }
     (run / RUN_FILE).write_text(json.dumps(document), encoding="utf-8")
     monkeypatch.chdir(tmp_path)
     with pytest.raises(KicError, match="run kic evaluate from the directory"):
         evaluate(run)
+
+
+def test_a_run_records_the_digest_of_the_images_it_saw(trained: dict[str, Path]) -> None:
+    run = json.loads((trained["run"] / RUN_FILE).read_text())
+    assert run["split_digest"] == split_digest(trained["prepared"])
+    assert run["cached_in_memory"] is True
+
+
+def test_evaluation_refuses_a_test_list_refilled_from_train(
+    trained: dict[str, Path], tmp_path: Path
+) -> None:
+    """Same seed, same ratios, same class list: only the membership is wrong."""
+    prepared = tmp_path / "prepared"
+    shutil.copytree(trained["prepared"], prepared)
+    document = json.loads((prepared / SPLITS).read_text())
+    document["test"] = document["train"][: len(document["test"])]
+    document["train"] = document["train"][len(document["test"]) :]
+    (prepared / SPLITS).write_text(json.dumps(document))
+    run = json.loads((trained["run"] / RUN_FILE).read_text())
+    moved = tmp_path / "run"
+    moved.mkdir()
+    (moved / MODEL_FILE).write_bytes((trained["run"] / MODEL_FILE).read_bytes())
+    run["config"]["data"] = str(prepared)
+    (moved / RUN_FILE).write_text(json.dumps(run))
+    with pytest.raises(KicError, match="not the images this run was trained on"):
+        evaluate(moved)
+
+
+def test_evaluation_refuses_a_prepared_file_whose_pixels_changed(
+    trained: dict[str, Path], tmp_path: Path
+) -> None:
+    prepared = tmp_path / "prepared"
+    shutil.copytree(trained["prepared"], prepared)
+    victim = json.loads((prepared / SPLITS).read_text())["test"][0]
+    with Image.open(prepared / victim) as image:
+        pixels = np.asarray(image.convert("RGB")).copy()
+    pixels[0, 0] = 255 - pixels[0, 0]
+    Image.fromarray(pixels).save(prepared / victim)
+    run = json.loads((trained["run"] / RUN_FILE).read_text())
+    moved = tmp_path / "run"
+    moved.mkdir()
+    (moved / MODEL_FILE).write_bytes((trained["run"] / MODEL_FILE).read_bytes())
+    run["config"]["data"] = str(prepared)
+    (moved / RUN_FILE).write_text(json.dumps(run))
+    with pytest.raises(KicError, match="does not match the hash"):
+        evaluate(moved)
+
+
+def test_a_run_from_an_earlier_version_is_refused_with_a_reason(
+    trained: dict[str, Path], tmp_path: Path
+) -> None:
+    run = json.loads((trained["run"] / RUN_FILE).read_text())
+    del run["split_digest"]
+    moved = tmp_path / "run"
+    moved.mkdir()
+    (moved / MODEL_FILE).write_bytes((trained["run"] / MODEL_FILE).read_bytes())
+    (moved / RUN_FILE).write_text(json.dumps(run))
+    with pytest.raises(KicError, match=r"earlier version.*retrain"):
+        evaluate(moved)
+
+
+def test_predict_still_works_with_a_run_from_an_earlier_version(
+    trained: dict[str, Path], tmp_path: Path
+) -> None:
+    """kic predict needs no split, so a 1.0.x run.json without split_digest still works."""
+    moved = tmp_path / "run"
+    moved.mkdir()
+    (moved / MODEL_FILE).write_bytes((trained["run"] / MODEL_FILE).read_bytes())
+    run = json.loads((trained["run"] / RUN_FILE).read_text())
+    del run["split_digest"]
+    (moved / RUN_FILE).write_text(json.dumps(run))
+    square = trained["raw"] / "square" / "square_00001.png"
+    records = predict(moved, [square], top_k=1)
+    assert records[0]["predictions"][0]["label"] == "square"
+
+
+def test_the_cache_is_switched_off_above_the_budget(
+    trained: dict[str, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("keras_image_classifier.train.CACHE_BUDGET_BYTES", 1)
+    run_dir = tmp_path / "run"
+    summary = train(TrainConfig(data=str(trained["prepared"]), run_dir=str(run_dir), epochs=1))
+    assert summary["cached_in_memory"] is False
+    assert json.loads((run_dir / RUN_FILE).read_text())["cached_in_memory"] is False
+    assert CACHE_BUDGET_BYTES == 2 * 1024**3
