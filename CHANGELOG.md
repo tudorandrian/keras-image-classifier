@@ -40,7 +40,8 @@ can still be used by `kic predict`, but must be retrained to be evaluated, becau
   enough to trip Pillow's decompression-bomb ceiling is refused the same way any other unreadable
   file is, instead of raising a warning or an uncaught error.
 - `kic predict` stacked every decoded input before inference; it now runs batches of 128.
-- The decoded-image cache is turned off above 2 GiB of pixels for train plus val.
+- The decoded-image cache is turned off above 2 GiB of pixels: for train plus val in
+  `kic train`, and for the split it scores in `kic evaluate`.
 
 ### Benchmark
 

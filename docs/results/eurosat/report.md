@@ -3,7 +3,7 @@
 - Split: `test`, 4050 images, 10 classes, 64 px
 - Accuracy: **0.9491** (always answering the largest class would score 0.1111)
 - Macro F1: **0.9473**
-- Model: 99,450 parameters, best epoch 20 of 20, trained in 1261.6 s, seed 0
+- Model: 99,450 parameters, best epoch 20 of 20, trained in 1818.0 s, seed 0
 - Environment: Keras 3.15.1 on jax, Python 3.13.15, Windows-10-10.0.19045-SP0
 
 | Class | Precision | Recall | F1 | Support |

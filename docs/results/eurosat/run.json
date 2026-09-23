@@ -33,7 +33,7 @@
    0.15
   ]
  },
- "split_digest": "e16f4eca2fadeea12ef00f9c547c4d35c22e950f1b09ab9a3fcd4ef752416dcc",
+ "split_digest": "f3095951cf1553a0610d46977d9ebfb4dbd6dc3efa91de7b0afed93a8e4b7f3f",
  "cached_in_memory": true,
  "parameters": 99450,
  "train_samples": 18900,
@@ -42,7 +42,7 @@
  "best_epoch": 20,
  "best_val_loss": 0.15778334438800812,
  "best_val_accuracy": 0.9454321265220642,
- "train_seconds": 1261.6,
+ "train_seconds": 1818.0,
  "environment": {
   "keras_image_classifier": "1.1.0",
   "python": "3.13.15",

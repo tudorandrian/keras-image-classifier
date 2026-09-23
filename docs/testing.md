@@ -62,8 +62,9 @@ Model and loader
   opens each file as PNG only, since `kic prepare` never writes anything else, so a file replaced
   by another format under the same name is refused the same way.
 - `kic predict` on seven files with a batch size of three calls the model with 3, 3 and 1 images.
-- Above `CACHE_BUDGET_BYTES` (2 GiB of decoded uint8 pixels for train plus val), `train` turns
-  the cache off and records `"cached_in_memory": false`.
+- Above `CACHE_BUDGET_BYTES` (2 GiB of decoded uint8 pixels), `train` turns the cache off for
+  train plus val and records `"cached_in_memory": false`; `evaluate` applies the same budget to
+  the split it scores.
 
 End to end, on 360 synthetic images
 
@@ -109,13 +110,18 @@ work during part of the EuroSAT prepare step, so treat that time as an upper bou
 | Measure | Value |
 | --- | --- |
 | Environment from `uv sync` | 64 packages, 609 MB including the development tools |
-| Test suite, `uv run pytest --cov` | 148 tests and 1 deselected network test, about 87 s, 100 % line and branch coverage |
+| Test suite, `uv run pytest --cov` | 154 tests and 1 deselected network test, 180 s measured on a busy machine (other processes at 63 % CPU load beforehand; treat as an upper bound), 100 % line and branch coverage |
 | Quick start on synthetic shapes: 600 images, 48 px, 15 epochs | about 50 s for all six commands (48 s measured), about 90 s on the first run after a fresh `uv sync`; test accuracy 1.000, baseline 0.333 |
 | Batch-norm warm-up on the same data (7 steps per epoch) | validation accuracy exactly 0.3333 through step 28, 0.3444 at step 35, 0.9333 at step 42, 1.0000 at step 49, while training accuracy is 1.0000 throughout |
 | EuroSAT prepare: decode, letterbox, hash and write 27,000 images | 2 min 40 s; 0 skipped, 0 duplicates, 0 conflicts |
 | EuroSAT training: 20 epochs, 18,900 images, 99,450 parameters | 1,261.6 s (21 min), 296 steps of 64 images per epoch, 213 ms per step |
 | EuroSAT test split, 4,050 images | accuracy 0.9491, macro F1 0.9473, baseline 0.1111 |
 | EuroSAT weakest and strongest class by F1 | River 0.907, SeaLake 0.992 |
+
+The `run.json` committed under `docs/results/eurosat/` was produced at the final 1.1.0 commit
+and records 1,818.0 s for that training run, not the 1,261.6 s quoted above: other processes
+loaded the machine during it. Its accuracy, per-class figures and confusion matrix are identical
+to the idle run this table quotes, so the table keeps the idle number as the representative one.
 
 Repeat the EuroSAT rows after any change to `model.py`, `train.py` or `data.py`, and update the
 table if a value moves by more than a quarter. The 1.1.0 re-measurement reproduced every
@@ -140,8 +146,9 @@ Known limits).
   a constant learning rate) were not re-run for 1.0.0, so this document quotes no numbers for
   them. Only the shipped configuration is measured.
 - The decoded-image cache holds a whole split in memory: 27,000 images of 64 px are 332 MB as
-  uint8, the same count at 224 px would be 4.1 GB. Above `CACHE_BUDGET_BYTES` (2 GiB for train
-  plus val) the cache is turned off and training decodes each image again every epoch.
+  uint8, the same count at 224 px would be 4.1 GB. Above `CACHE_BUDGET_BYTES` (2 GiB) the cache
+  is turned off, for train plus val in `kic train` and for the scored split in `kic evaluate`,
+  and each decodes its images again every epoch or every call instead.
 - `images.load_rgb` takes a `max_pixels` argument, but Pillow's own decompression-bomb ceiling
   (`Image.MAX_IMAGE_PIXELS`, 89,478,485 here) is applied first, while the header is read. So
   `max_pixels` can tighten the limit below the project default of 50,000,000 and cannot raise it
