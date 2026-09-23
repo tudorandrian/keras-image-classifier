@@ -133,10 +133,11 @@ Every command prints JSON and exits with 0, or prints one line to standard error
 with 2 when the problem is one you can fix. A truncated or hand-edited `manifest.json`,
 `splits.json` or `run.json` is one of those problems, not a crash.
 
-`kic train` writes into `run.json` a digest of the exact images in every split, and both
-`train` and `evaluate` check each prepared file against the hash `kic prepare` recorded before
-they start. So `kic evaluate` refuses to score a split whose members changed, even under the same
-seed and ratios, and refuses a prepared file whose pixels changed, with one line saying which.
+`kic train` writes into `run.json` a digest of the exact images in every split. `train` checks
+the train and validation files, and `evaluate` checks the files of the split it scores, each
+against the hash `kic prepare` recorded before they start. So `kic evaluate` refuses to score a
+split whose members changed, even under the same seed and ratios, and refuses a prepared file
+whose pixels changed, with one line saying which.
 A run directory written by version 1.0.x has no digest and must be retrained to be evaluated.
 
 `kic train` creates its run directory before it starts fitting, and refuses to write into a

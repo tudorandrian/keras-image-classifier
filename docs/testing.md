@@ -33,7 +33,8 @@ Data preparation
 - `splits.json` entries must be manifest paths and appear once; `circle/../../x.png`, a path in
   two splits, or a path twice in one split is refused naming the entry and the split.
 - `manifest.json` samples must be exactly `<label>/<sha256[:16]>.png` with an allowed class
-  name; anything else is refused as something `kic prepare` would not have written.
+  name; anything else is refused as something `kic prepare` would not have written. A manifest
+  that lists the same content hash twice is refused the same way.
 - `kic synth` refuses a non-empty directory.
 
 Untrusted archives and downloads
@@ -57,7 +58,9 @@ Model and loader
 - Shuffling is seeded and changes each epoch; augmentation produces only the image or its
   mirror, and is wired to the training split only; decoded images are cached.
 - The loader compares every decoded image with its manifest hash; a one-pixel edit is refused
-  before training or scoring starts, and a deleted file is a user error, not a traceback.
+  before training or scoring starts, and a deleted file is a user error, not a traceback. It
+  opens each file as PNG only, since `kic prepare` never writes anything else, so a file replaced
+  by another format under the same name is refused the same way.
 - `kic predict` on seven files with a batch size of three calls the model with 3, 3 and 1 images.
 - Above `CACHE_BUDGET_BYTES` (2 GiB of decoded uint8 pixels for train plus val), `train` turns
   the cache off and records `"cached_in_memory": false`.
@@ -89,8 +92,9 @@ End to end, on 360 synthetic images
 
 What `evaluate` checks before scoring, in order: the prepared set's class list and image size
 against `run.json`; the split's version, seed and ratios; then `split_digest`, the SHA-256 over
-the content hashes of all three splits in order, against the value `train` recorded; then every
-file of the split against the hash `kic prepare` wrote into `manifest.json`. A test list
+each split's paths and content hashes, in order, against the value `train` recorded, so a
+relabelled sample is caught as well as a changed one; then every file of the split against the
+hash `kic prepare` wrote into `manifest.json`. A test list
 refilled from training images, a prepared set rebuilt from other raw data under the same seed,
 and a PNG edited after preparation are each refused with one line. What is still not covered:
 near-duplicates across splits (see Known limits), and a `manifest.json` rewritten together with
@@ -106,7 +110,7 @@ work during part of the EuroSAT prepare step, so treat that time as an upper bou
 | --- | --- |
 | Environment from `uv sync` | 64 packages, 609 MB including the development tools |
 | Test suite, `uv run pytest --cov` | 148 tests and 1 deselected network test, about 87 s, 100 % line and branch coverage |
-| Quick start on synthetic shapes: 600 images, 48 px, 15 epochs | about 60 s for all six commands (48 s measured), about 90 s on the first run after a fresh `uv sync`; test accuracy 1.000, baseline 0.333 |
+| Quick start on synthetic shapes: 600 images, 48 px, 15 epochs | about 50 s for all six commands (48 s measured), about 90 s on the first run after a fresh `uv sync`; test accuracy 1.000, baseline 0.333 |
 | Batch-norm warm-up on the same data (7 steps per epoch) | validation accuracy exactly 0.3333 through step 28, 0.3444 at step 35, 0.9333 at step 42, 1.0000 at step 49, while training accuracy is 1.0000 throughout |
 | EuroSAT prepare: decode, letterbox, hash and write 27,000 images | 2 min 40 s; 0 skipped, 0 duplicates, 0 conflicts |
 | EuroSAT training: 20 epochs, 18,900 images, 99,450 parameters | 1,261.6 s (21 min), 296 steps of 64 images per epoch, 213 ms per step |

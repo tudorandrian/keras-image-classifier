@@ -9,9 +9,15 @@ An integrity release, from a review of the 1.0.2 code: a saved run is now tied t
 images it was trained and evaluated on. The EuroSAT numbers below were measured again with this
 version; see the README.
 
+### Compatibility
+
+The CLI, prepared data sets and `splits.json` are unchanged. A run directory written by 1.0.x
+can still be used by `kic predict`, but must be retrained to be evaluated, because it carries no
+`split_digest`. `kic synth` now refuses a non-empty destination directory.
+
 ### Changed
 
-- `run.json` records `split_digest`, the SHA-256 over the content hashes of all three splits in
+- `run.json` records `split_digest`, the SHA-256 over each split's paths and content hashes, in
   order, and `cached_in_memory`. `kic evaluate` compares the digest and refuses a run directory
   written by 1.0.x, which has none; retrain to evaluate such a run.
 - `kic synth` refuses a non-empty destination, as `prepare` and `train` already did. Running it
@@ -25,7 +31,14 @@ version; see the README.
   paths passed the seed-and-ratios check and was scored as held out. Every entry must now be a
   manifest path and appear exactly once across the three splits.
 - `manifest.json` paths are checked to be the ones `kic prepare` writes, and every prepared file
-  is compared with its recorded pixel hash before training or scoring.
+  is compared with its recorded pixel hash before training or scoring. A manifest that lists the
+  same content hash twice, which `kic prepare` never writes but a hand-edited file could, is now
+  refused as well.
+- The loader opened a prepared file with no format check, so a file replaced under its expected
+  name after preparation could still be decoded as long as some format matched. It now opens
+  each file as PNG only, since `kic prepare` never writes anything else, and a replacement large
+  enough to trip Pillow's decompression-bomb ceiling is refused the same way any other unreadable
+  file is, instead of raising a warning or an uncaught error.
 - `kic predict` stacked every decoded input before inference; it now runs batches of 128.
 - The decoded-image cache is turned off above 2 GiB of pixels for train plus val.
 
