@@ -43,6 +43,8 @@ def generate(destination: Path, *, per_class: int = 200, size: int = 48, seed: i
         raise KicError("per-class count must be at least 3")
     if not 16 <= size <= 512:
         raise KicError("size must be between 16 and 512")
+    if destination.exists() and any(destination.iterdir()):
+        raise KicError(f"{destination} is not empty; choose a new directory or delete it")
     rng = np.random.default_rng(seed)
     for shape in SHAPES:
         directory = destination / shape

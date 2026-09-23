@@ -2,7 +2,7 @@
 
 A small, reproducible image-classification pipeline built on Keras 3: prepare a folder of
 images, split it without leakage, train a compact CNN, evaluate it and classify new files, all
-from one command-line tool. Version 1.0.2, stable; it started as university coursework in 2024
+from one command-line tool. Version 1.1.0, stable; it started as university coursework in 2024
 and was rewritten in 2026 (see [History](#history)).
 
 [![CI](https://github.com/tudorandrian/keras-image-classifier/actions/workflows/ci.yml/badge.svg)](https://github.com/tudorandrian/keras-image-classifier/actions/workflows/ci.yml)
@@ -89,7 +89,7 @@ uv run kic evaluate runs/eurosat
 | Macro F1 | 0.9473 |
 | Majority-class baseline | 0.1111 |
 | Weakest class | River, F1 0.907 |
-| Training | 20 epochs, 1,357 s (23 minutes) on a 4-core laptop CPU from 2017, no GPU |
+| Training | 20 epochs, 1,261.6 s (21 minutes) on a 4-core laptop CPU from 2017, no GPU |
 
 ![Confusion matrix](docs/results/eurosat/confusion_matrix.png)
 
@@ -120,7 +120,7 @@ If your images show people, you are responsible for having the right to process 
 
 | Command | Does |
 | --- | --- |
-| `kic synth DEST` | writes a synthetic shapes data set |
+| `kic synth DEST` | writes a synthetic shapes data set into an empty directory |
 | `kic fetch-eurosat DEST` | downloads and verifies EuroSAT RGB |
 | `kic prepare SRC DEST --image-size N` | decodes, letterboxes to N x N, deduplicates, writes `manifest.json` |
 | `kic split PREPARED --ratios 0.7 0.15 0.15 --seed 0` | writes `splits.json` |
@@ -132,6 +132,13 @@ If your images show people, you are responsible for having the right to process 
 Every command prints JSON and exits with 0, or prints one line to standard error and exits
 with 2 when the problem is one you can fix. A truncated or hand-edited `manifest.json`,
 `splits.json` or `run.json` is one of those problems, not a crash.
+
+`kic train` writes into `run.json` a digest of the exact images in every split. `train` checks
+the train and validation files, and `evaluate` checks the files of the split it scores, each
+against the hash `kic prepare` recorded before they start. So `kic evaluate` refuses to score a
+split whose members changed, even under the same seed and ratios, and refuses a prepared file
+whose pixels changed, with one line saying which.
+A run directory written by version 1.0.x has no digest and must be retrained to be evaluated.
 
 `kic train` creates its run directory before it starts fitting, and refuses to write into a
 directory that already has something in it, so a run you interrupt with Ctrl-C leaves that

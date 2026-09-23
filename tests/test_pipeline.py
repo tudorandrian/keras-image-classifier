@@ -8,17 +8,22 @@ from __future__ import annotations
 
 import csv
 import json
+import shutil
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pytest
+from PIL import Image
 
 from keras_image_classifier import KicError
 from keras_image_classifier.cli import main
 from keras_image_classifier.data import ImageBatches
+from keras_image_classifier.dataset import SPLITS, split_digest
 from keras_image_classifier.evaluate import MATRIX_FILE, METRICS_FILE, REPORT_FILE, evaluate
 from keras_image_classifier.predict import predict
 from keras_image_classifier.train import (
+    CACHE_BUDGET_BYTES,
     HISTORY_FILE,
     MODEL_FILE,
     RUN_FILE,
@@ -226,10 +231,30 @@ def test_the_command_line_reaches_evaluate_and_predict(
 def test_predict_checks_top_k_and_the_model_file(trained: dict[str, Path], tmp_path: Path) -> None:
     with pytest.raises(KicError, match="top-k must be at least 1"):
         predict(trained["run"], [], top_k=0)
+    with pytest.raises(KicError, match="batch size must be at least 1"):
+        predict(trained["run"], [], batch_size=0)
     assert predict(trained["run"], []) == []
     (tmp_path / RUN_FILE).write_text("{}")
     with pytest.raises(KicError, match=f"has no {MODEL_FILE}"):
         predict(tmp_path, [])
+
+
+def test_prediction_never_holds_more_than_one_batch_of_pixels(
+    trained: dict[str, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    files = sorted((trained["raw"] / "circle").iterdir())[:7]
+    seen: list[int] = []
+    real = load_model(trained["run"])
+
+    class Counting:
+        def predict(self, pixels: Any, verbose: int) -> Any:
+            seen.append(len(pixels))
+            return real.predict(pixels, verbose=verbose)
+
+    monkeypatch.setattr("keras_image_classifier.predict.load_model", lambda run_dir: Counting())
+    records = predict(trained["run"], files, batch_size=3)
+    assert seen == [3, 3, 1]
+    assert [r["predictions"][0]["label"] for r in records] == ["circle"] * 7
 
 
 def test_a_truncated_run_file_is_a_user_error_not_a_traceback(
@@ -267,8 +292,124 @@ def test_evaluate_explains_a_run_started_from_another_directory(
     run = tmp_path / "run"
     run.mkdir()
     (run / MODEL_FILE).write_bytes(b"")
-    document = {"config": {"data": "data/shapes"}, "classes": ["a", "b"], "image_size": 32}
+    document = {
+        "config": {"data": "data/shapes"},
+        "classes": ["a", "b"],
+        "image_size": 32,
+        "split_digest": "irrelevant",
+    }
     (run / RUN_FILE).write_text(json.dumps(document), encoding="utf-8")
     monkeypatch.chdir(tmp_path)
     with pytest.raises(KicError, match="run kic evaluate from the directory"):
         evaluate(run)
+
+
+def test_a_run_records_the_digest_of_the_images_it_saw(trained: dict[str, Path]) -> None:
+    run = json.loads((trained["run"] / RUN_FILE).read_text())
+    assert run["split_digest"] == split_digest(trained["prepared"])
+    assert run["cached_in_memory"] is True
+
+
+def test_evaluation_refuses_a_test_list_refilled_from_train(
+    trained: dict[str, Path], tmp_path: Path
+) -> None:
+    """Same seed, same ratios, same class list: only the membership is wrong."""
+    prepared = tmp_path / "prepared"
+    shutil.copytree(trained["prepared"], prepared)
+    document = json.loads((prepared / SPLITS).read_text())
+    document["test"] = document["train"][: len(document["test"])]
+    document["train"] = document["train"][len(document["test"]) :]
+    (prepared / SPLITS).write_text(json.dumps(document))
+    run = json.loads((trained["run"] / RUN_FILE).read_text())
+    moved = tmp_path / "run"
+    moved.mkdir()
+    (moved / MODEL_FILE).write_bytes((trained["run"] / MODEL_FILE).read_bytes())
+    run["config"]["data"] = str(prepared)
+    (moved / RUN_FILE).write_text(json.dumps(run))
+    with pytest.raises(KicError, match="not the images this run was trained on"):
+        evaluate(moved)
+
+
+def test_evaluation_refuses_a_prepared_file_whose_pixels_changed(
+    trained: dict[str, Path], tmp_path: Path
+) -> None:
+    prepared = tmp_path / "prepared"
+    shutil.copytree(trained["prepared"], prepared)
+    victim = json.loads((prepared / SPLITS).read_text())["test"][0]
+    with Image.open(prepared / victim) as image:
+        pixels = np.asarray(image.convert("RGB")).copy()
+    pixels[0, 0] = 255 - pixels[0, 0]
+    Image.fromarray(pixels).save(prepared / victim)
+    run = json.loads((trained["run"] / RUN_FILE).read_text())
+    moved = tmp_path / "run"
+    moved.mkdir()
+    (moved / MODEL_FILE).write_bytes((trained["run"] / MODEL_FILE).read_bytes())
+    run["config"]["data"] = str(prepared)
+    (moved / RUN_FILE).write_text(json.dumps(run))
+    with pytest.raises(KicError, match="does not match the hash"):
+        evaluate(moved)
+
+
+def test_a_run_from_an_earlier_version_is_refused_with_a_reason(
+    trained: dict[str, Path], tmp_path: Path
+) -> None:
+    run = json.loads((trained["run"] / RUN_FILE).read_text())
+    del run["split_digest"]
+    moved = tmp_path / "run"
+    moved.mkdir()
+    (moved / MODEL_FILE).write_bytes((trained["run"] / MODEL_FILE).read_bytes())
+    (moved / RUN_FILE).write_text(json.dumps(run))
+    with pytest.raises(KicError, match=r"earlier version.*retrain"):
+        evaluate(moved)
+
+
+def test_predict_still_works_with_a_run_from_an_earlier_version(
+    trained: dict[str, Path], tmp_path: Path
+) -> None:
+    """kic predict needs no split, so a 1.0.x run.json without split_digest still works."""
+    moved = tmp_path / "run"
+    moved.mkdir()
+    (moved / MODEL_FILE).write_bytes((trained["run"] / MODEL_FILE).read_bytes())
+    run = json.loads((trained["run"] / RUN_FILE).read_text())
+    del run["split_digest"]
+    (moved / RUN_FILE).write_text(json.dumps(run))
+    square = trained["raw"] / "square" / "square_00001.png"
+    records = predict(moved, [square], top_k=1)
+    assert records[0]["predictions"][0]["label"] == "square"
+
+
+def test_evaluate_scores_correctly_with_the_cache_turned_off(
+    trained: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Below CACHE_BUDGET_BYTES evaluate caches like train; above it, it must still score
+    correctly, and this pins that the cache really was off, not just that the score matched
+    by coincidence."""
+    baseline = evaluate(trained["run"])
+
+    created: list[ImageBatches] = []
+
+    class RecordingBatches(ImageBatches):
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            super().__init__(*args, **kwargs)
+            created.append(self)
+
+    monkeypatch.setattr("keras_image_classifier.data.ImageBatches", RecordingBatches)
+    monkeypatch.setattr("keras_image_classifier.evaluate.CACHE_BUDGET_BYTES", 1)
+    result = evaluate(trained["run"])
+
+    assert len(created) == 1
+    assert created[0].keep is False  # the ImageBatches evaluate built had cache=False
+    assert created[0].cache == {}  # and nothing was ever stashed in its (unused) cache dict
+    assert result["accuracy"] == baseline["accuracy"]
+    assert result["confusion_matrix"] == baseline["confusion_matrix"]
+
+
+def test_the_cache_is_switched_off_above_the_budget(
+    trained: dict[str, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("keras_image_classifier.train.CACHE_BUDGET_BYTES", 1)
+    run_dir = tmp_path / "run"
+    summary = train(TrainConfig(data=str(trained["prepared"]), run_dir=str(run_dir), epochs=1))
+    assert summary["cached_in_memory"] is False
+    assert json.loads((run_dir / RUN_FILE).read_text())["cached_in_memory"] is False
+    assert CACHE_BUDGET_BYTES == 2 * 1024**3

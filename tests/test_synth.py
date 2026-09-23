@@ -51,3 +51,12 @@ def test_arguments_are_checked(tmp_path: Path, options: dict[str, int], message:
 def test_unknown_shape_is_refused() -> None:
     with pytest.raises(KicError, match="unknown shape 'star'"):
         draw_shape("star", 32, np.random.default_rng(0))
+
+
+def test_generate_never_writes_into_a_used_directory(tmp_path: Path) -> None:
+    # 20 then 3 per class used to leave 60 files on disk while reporting 9, so the next
+    # `kic prepare` read a set that matched neither command.
+    generate(tmp_path / "raw", per_class=20, size=16)
+    with pytest.raises(KicError, match="is not empty"):
+        generate(tmp_path / "raw", per_class=3, size=16)
+    assert sum(1 for _ in (tmp_path / "raw").rglob("*.png")) == 60

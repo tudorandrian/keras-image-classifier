@@ -30,6 +30,12 @@ Data preparation
   disk match the manifest exactly.
 - The split is stratified (3 of 20 per class in validation and in test), disjoint and complete;
   renaming every source file does not change it; another seed does.
+- `splits.json` entries must be manifest paths and appear once; `circle/../../x.png`, a path in
+  two splits, or a path twice in one split is refused naming the entry and the split.
+- `manifest.json` samples must be exactly `<label>/<sha256[:16]>.png` with an allowed class
+  name; anything else is refused as something `kic prepare` would not have written. A manifest
+  that lists the same content hash twice is refused the same way.
+- `kic synth` refuses a non-empty directory.
 
 Untrusted archives and downloads
 
@@ -51,6 +57,14 @@ Model and loader
   Flatten layer. Outputs sum to 1. The first layer rescales, so the loader must deliver 0-255.
 - Shuffling is seeded and changes each epoch; augmentation produces only the image or its
   mirror, and is wired to the training split only; decoded images are cached.
+- The loader compares every decoded image with its manifest hash; a one-pixel edit is refused
+  before training or scoring starts, and a deleted file is a user error, not a traceback. It
+  opens each file as PNG only, since `kic prepare` never writes anything else, so a file replaced
+  by another format under the same name is refused the same way.
+- `kic predict` on seven files with a batch size of three calls the model with 3, 3 and 1 images.
+- Above `CACHE_BUDGET_BYTES` (2 GiB of decoded uint8 pixels), `train` turns the cache off for
+  train plus val and records `"cached_in_memory": false`; `evaluate` applies the same budget to
+  the split it scores.
 
 End to end, on 360 synthetic images
 
@@ -77,32 +91,43 @@ End to end, on 360 synthetic images
   `run.json` is a problem the user can fix, so it is a `KicError` naming the file and the
   missing or unparsable part, not a `JSONDecodeError` or `KeyError` traceback.
 
-What `evaluate` does and does not catch is worth stating exactly, because it is easy to read as
-more than it is. Before scoring, it compares the prepared set's class list and image size, and
-the split's version, seed and ratios, with the values recorded in `run.json`, and refuses to go
-on if either differs. It does **not** hash split membership. A prepared set rebuilt from changed
-raw data under the same seed and the same ratios produces a different membership that this
-guard cannot see. Keep the `splits.json` that produced a run, or retrain.
+What `evaluate` checks before scoring, in order: the prepared set's class list and image size
+against `run.json`; the split's version, seed and ratios; then `split_digest`, the SHA-256 over
+each split's paths and content hashes, in order, against the value `train` recorded, so a
+relabelled sample is caught as well as a changed one; then every file of the split against the
+hash `kic prepare` wrote into `manifest.json`. A test list
+refilled from training images, a prepared set rebuilt from other raw data under the same seed,
+and a PNG edited after preparation are each refused with one line. What is still not covered:
+near-duplicates across splits (see Known limits), and a `manifest.json` rewritten together with
+the files it describes, which is a new data set rather than a damaged one.
 
 ## Reference measurements
 
-Measured on 2026-09-18: Windows 10, Intel Core i7-7700HQ (2017, 4 cores and 8 threads), 16 GB of
-memory, no GPU, Python 3.13.15, Keras 3.15.1 on JAX 0.11.1. The machine was doing other work
-during part of the EuroSAT prepare step, so treat that time as an upper bound.
+Measured on 2026-09-23: Windows 10, Intel Core i7-7700HQ (2017, 4 cores and 8 threads), 16 GB of
+memory, no GPU, Python 3.13.15, Keras 3.15.1 on JAX 0.11.1. The machine was doing other light
+work during part of the EuroSAT prepare step, so treat that time as an upper bound.
 
 | Measure | Value |
 | --- | --- |
 | Environment from `uv sync` | 64 packages, 609 MB including the development tools |
-| Test suite, `uv run pytest --cov` | 123 tests and 1 deselected network test, about 80 s, 100 % line and branch coverage |
-| Quick start on synthetic shapes: 600 images, 48 px, 15 epochs | about 60 s for all six commands (58 s measured, 22 s of it fitting), about 90 s on the first run after a fresh `uv sync`; test accuracy 1.000, baseline 0.333 |
+| Test suite, `uv run pytest --cov` | 153 tests and 1 deselected network test, 100 % line and branch coverage; 87 s on an idle machine when the suite had 148 tests, 180 s and 209 s in two runs while other processes loaded the CPU |
+| Quick start on synthetic shapes: 600 images, 48 px, 15 epochs | about 50 s for all six commands (48 s measured), about 90 s on the first run after a fresh `uv sync`; test accuracy 1.000, baseline 0.333 |
 | Batch-norm warm-up on the same data (7 steps per epoch) | validation accuracy exactly 0.3333 through step 28, 0.3444 at step 35, 0.9333 at step 42, 1.0000 at step 49, while training accuracy is 1.0000 throughout |
-| EuroSAT prepare: decode, letterbox, hash and write 27,000 images | 2 min 39 s; 0 skipped, 0 duplicates, 0 conflicts |
-| EuroSAT training: 20 epochs, 18,900 images, 99,450 parameters | 1,357 s (23 min), 296 steps of 64 images per epoch, 229 ms per step |
+| EuroSAT prepare: decode, letterbox, hash and write 27,000 images | 2 min 40 s; 0 skipped, 0 duplicates, 0 conflicts |
+| EuroSAT training: 20 epochs, 18,900 images, 99,450 parameters | 1,261.6 s (21 min), 296 steps of 64 images per epoch, 213 ms per step |
 | EuroSAT test split, 4,050 images | accuracy 0.9491, macro F1 0.9473, baseline 0.1111 |
 | EuroSAT weakest and strongest class by F1 | River 0.907, SeaLake 0.992 |
 
+The `run.json` committed under `docs/results/eurosat/` was produced at the final 1.1.0 commit
+and records 1,818.0 s for that training run, not the 1,261.6 s quoted above: other processes
+loaded the machine during it. Its accuracy, per-class figures and confusion matrix are identical
+to the idle run this table quotes, so the table keeps the idle number as the representative one.
+
 Repeat the EuroSAT rows after any change to `model.py`, `train.py` or `data.py`, and update the
-table if a value moves by more than a quarter.
+table if a value moves by more than a quarter. The 1.1.0 re-measurement reproduced every
+per-class figure, the confusion matrix and the best validation loss exactly from the 1.0.0 run,
+which confirms across two releases that JAX on CPU is deterministic on this one machine (see
+Known limits).
 
 ## Known limits
 
@@ -121,7 +146,9 @@ table if a value moves by more than a quarter.
   a constant learning rate) were not re-run for 1.0.0, so this document quotes no numbers for
   them. Only the shipped configuration is measured.
 - The decoded-image cache holds a whole split in memory: 27,000 images of 64 px are 332 MB as
-  uint8, the same count at 224 px would be 4.1 GB.
+  uint8, the same count at 224 px would be 4.1 GB. Above `CACHE_BUDGET_BYTES` (2 GiB) the cache
+  is turned off, for train plus val in `kic train` and for the scored split in `kic evaluate`,
+  and each decodes its images again every epoch or every call instead.
 - `images.load_rgb` takes a `max_pixels` argument, but Pillow's own decompression-bomb ceiling
   (`Image.MAX_IMAGE_PIXELS`, 89,478,485 here) is applied first, while the header is read. So
   `max_pixels` can tighten the limit below the project default of 50,000,000 and cannot raise it

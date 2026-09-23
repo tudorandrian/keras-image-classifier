@@ -9,9 +9,15 @@ from typing import Any
 import numpy as np
 
 from keras_image_classifier import KicError
-from keras_image_classifier.dataset import load_manifest, load_split, split_identity
+from keras_image_classifier.dataset import (
+    SPLITS,
+    load_manifest,
+    load_split,
+    split_digest,
+    split_identity,
+)
 from keras_image_classifier.metrics import IntMatrix, confusion_matrix, report
-from keras_image_classifier.train import RUN_FILE, load_model, load_run
+from keras_image_classifier.train import CACHE_BUDGET_BYTES, RUN_FILE, load_model, load_run
 
 METRICS_FILE = "metrics.json"
 REPORT_FILE = "report.md"
@@ -20,6 +26,11 @@ MATRIX_FILE = "confusion_matrix.png"
 
 def evaluate(run_dir: Path, *, split: str = "test", batch_size: int = 128) -> dict[str, Any]:
     run = load_run(run_dir)
+    if "split_digest" not in run:
+        raise KicError(
+            f"{run_dir / RUN_FILE} was written by an earlier version, which did not record "
+            "which images the run saw; retrain with this version to evaluate it"
+        )
     data = Path(run["config"]["data"])
     if not data.is_dir():
         # run.json keeps the data path as it was typed, usually relative, so it resolves
@@ -31,17 +42,39 @@ def evaluate(run_dir: Path, *, split: str = "test", batch_size: int = 128) -> di
     manifest = load_manifest(data)
     if manifest.classes != run["classes"] or manifest.image_size != run["image_size"]:
         raise KicError(f"{data} no longer matches the data this run was trained on")
-    paths, labels, classes = load_split(data, split)
+    samples, classes = load_split(data, split)
+    index = {label: i for i, label in enumerate(classes)}
+    paths = [s.path for s in samples]
+    labels = [index[s.label] for s in samples]
     if split_identity(data) != run.get("split"):
         raise KicError(
             f"the split in {data} no longer matches the split this run was trained on; "
             "retrain, or restore the splits.json that produced this run"
         )
+    if split_digest(data) != run["split_digest"]:
+        raise KicError(
+            f"the images listed in {data / SPLITS} are not the images this run was trained on; "
+            "restore the splits.json and prepared files that produced this run, or retrain"
+        )
 
     from keras_image_classifier.data import ImageBatches
 
     model = load_model(run_dir)
-    batches = ImageBatches(data, paths, labels, batch_size=batch_size, shuffle=False)
+    # Same rule `train` applies to train plus val: below the budget, keep every decoded
+    # image in memory so a re-run of `evaluate` does not decode the split again for
+    # nothing; above it, decode on demand instead of risking the machine's memory.
+    pixels_per_image = manifest.image_size * manifest.image_size * 3
+    cache = len(samples) * pixels_per_image <= CACHE_BUDGET_BYTES
+    batches = ImageBatches(
+        data,
+        paths,
+        labels,
+        batch_size=batch_size,
+        shuffle=False,
+        digests=[s.sha256 for s in samples],
+        cache=cache,
+    )
+    batches.verify()
     probabilities = model.predict(batches, verbose=0)
     predicted = [int(i) for i in np.argmax(probabilities, axis=1)]
     matrix = confusion_matrix(labels, predicted, len(classes))

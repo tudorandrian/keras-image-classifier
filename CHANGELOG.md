@@ -3,6 +3,52 @@
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 uses [Semantic Versioning](https://semver.org/).
 
+## [1.1.0] - 2026-09-23
+
+An integrity release, from a review of the 1.0.2 code: a saved run is now tied to the exact
+images it was trained and evaluated on. The EuroSAT numbers below were measured again with this
+version; see the README.
+
+### Compatibility
+
+The CLI, prepared data sets and `splits.json` are unchanged. A run directory written by 1.0.x
+can still be used by `kic predict`, but must be retrained to be evaluated, because it carries no
+`split_digest`. `kic synth` now refuses a non-empty destination directory.
+
+### Changed
+
+- `run.json` records `split_digest`, the SHA-256 over each split's paths and content hashes, in
+  order, and `cached_in_memory`. `kic evaluate` compares the digest and refuses a run directory
+  written by 1.0.x, which has none; retrain to evaluate such a run.
+- `kic synth` refuses a non-empty destination, as `prepare` and `train` already did. Running it
+  twice into the same directory used to keep the old files and report only the new count.
+- GitHub Actions are pinned to commit SHAs instead of tags.
+
+### Fixed
+
+- `splits.json` was trusted as written: an entry such as `circle/../../x.png` kept a valid
+  label and opened a file outside the prepared directory, and a test list refilled from training
+  paths passed the seed-and-ratios check and was scored as held out. Every entry must now be a
+  manifest path and appear exactly once across the three splits.
+- `manifest.json` paths are checked to be the ones `kic prepare` writes, and every prepared file
+  is compared with its recorded pixel hash before training or scoring. A manifest that lists the
+  same content hash twice, which `kic prepare` never writes but a hand-edited file could, is now
+  refused as well.
+- The loader opened a prepared file with no format check, so a file replaced under its expected
+  name after preparation could still be decoded as long as some format matched. It now opens
+  each file as PNG only, since `kic prepare` never writes anything else, and a replacement large
+  enough to trip Pillow's decompression-bomb ceiling is refused the same way any other unreadable
+  file is, instead of raising a warning or an uncaught error.
+- `kic predict` stacked every decoded input before inference; it now runs batches of 128.
+- The decoded-image cache is turned off above 2 GiB of pixels: for train plus val in
+  `kic train`, and for the split it scores in `kic evaluate`.
+
+### Benchmark
+
+- EuroSAT, re-measured with 1.1.0: identical accuracy 0.9491 and macro F1 0.9473, the same
+  per-class figures and confusion matrix as 1.0.0, training 1,261.6 s (21 min) on the same
+  laptop.
+
 ## [1.0.2] - 2026-09-18
 
 Fixes found by installing the project from a fresh clone and following the README the way a new
@@ -135,6 +181,7 @@ A rewrite of the 2024 coursework. The idea is unchanged; every file is new.
 
 The coursework as submitted, kept under the tag `v0.1.0-coursework`.
 
+[1.1.0]: https://github.com/tudorandrian/keras-image-classifier/releases/tag/v1.1.0
 [1.0.2]: https://github.com/tudorandrian/keras-image-classifier/releases/tag/v1.0.2
 [1.0.1]: https://github.com/tudorandrian/keras-image-classifier/releases/tag/v1.0.1
 [1.0.0]: https://github.com/tudorandrian/keras-image-classifier/releases/tag/v1.0.0
