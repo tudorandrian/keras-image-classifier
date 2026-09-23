@@ -231,10 +231,30 @@ def test_the_command_line_reaches_evaluate_and_predict(
 def test_predict_checks_top_k_and_the_model_file(trained: dict[str, Path], tmp_path: Path) -> None:
     with pytest.raises(KicError, match="top-k must be at least 1"):
         predict(trained["run"], [], top_k=0)
+    with pytest.raises(KicError, match="batch size must be at least 1"):
+        predict(trained["run"], [], batch_size=0)
     assert predict(trained["run"], []) == []
     (tmp_path / RUN_FILE).write_text("{}")
     with pytest.raises(KicError, match=f"has no {MODEL_FILE}"):
         predict(tmp_path, [])
+
+
+def test_prediction_never_holds_more_than_one_batch_of_pixels(
+    trained: dict[str, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    files = sorted((trained["raw"] / "circle").iterdir())[:7]
+    seen: list[int] = []
+    real = load_model(trained["run"])
+
+    class Counting:
+        def predict(self, pixels: Any, verbose: int) -> Any:
+            seen.append(len(pixels))
+            return real.predict(pixels, verbose=verbose)
+
+    monkeypatch.setattr("keras_image_classifier.predict.load_model", lambda run_dir: Counting())
+    records = predict(trained["run"], files, batch_size=3)
+    assert seen == [3, 3, 1]
+    assert [r["predictions"][0]["label"] for r in records] == ["circle"] * 7
 
 
 def test_a_truncated_run_file_is_a_user_error_not_a_traceback(
