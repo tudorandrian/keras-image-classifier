@@ -33,6 +33,8 @@
    0.15
   ]
  },
+ "split_digest": "e16f4eca2fadeea12ef00f9c547c4d35c22e950f1b09ab9a3fcd4ef752416dcc",
+ "cached_in_memory": true,
  "parameters": 99450,
  "train_samples": 18900,
  "val_samples": 4050,
@@ -40,9 +42,9 @@
  "best_epoch": 20,
  "best_val_loss": 0.15778334438800812,
  "best_val_accuracy": 0.9454321265220642,
- "train_seconds": 1356.6,
+ "train_seconds": 1261.6,
  "environment": {
-  "keras_image_classifier": "1.0.0",
+  "keras_image_classifier": "1.1.0",
   "python": "3.13.15",
   "platform": "Windows-10-10.0.19045-SP0",
   "keras": "3.15.1",

@@ -89,7 +89,7 @@ uv run kic evaluate runs/eurosat
 | Macro F1 | 0.9473 |
 | Majority-class baseline | 0.1111 |
 | Weakest class | River, F1 0.907 |
-| Training | 20 epochs, 1,357 s (23 minutes) on a 4-core laptop CPU from 2017, no GPU |
+| Training | 20 epochs, 1,261.6 s (21 minutes) on a 4-core laptop CPU from 2017, no GPU |
 
 ![Confusion matrix](docs/results/eurosat/confusion_matrix.png)
 

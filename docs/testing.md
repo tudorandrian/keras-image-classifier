@@ -98,23 +98,26 @@ the files it describes, which is a new data set rather than a damaged one.
 
 ## Reference measurements
 
-Measured on 2026-09-18: Windows 10, Intel Core i7-7700HQ (2017, 4 cores and 8 threads), 16 GB of
-memory, no GPU, Python 3.13.15, Keras 3.15.1 on JAX 0.11.1. The machine was doing other work
-during part of the EuroSAT prepare step, so treat that time as an upper bound.
+Measured on 2026-09-23: Windows 10, Intel Core i7-7700HQ (2017, 4 cores and 8 threads), 16 GB of
+memory, no GPU, Python 3.13.15, Keras 3.15.1 on JAX 0.11.1. The machine was doing other light
+work during part of the EuroSAT prepare step, so treat that time as an upper bound.
 
 | Measure | Value |
 | --- | --- |
 | Environment from `uv sync` | 64 packages, 609 MB including the development tools |
-| Test suite, `uv run pytest --cov` | 123 tests and 1 deselected network test, about 80 s, 100 % line and branch coverage |
-| Quick start on synthetic shapes: 600 images, 48 px, 15 epochs | about 60 s for all six commands (58 s measured, 22 s of it fitting), about 90 s on the first run after a fresh `uv sync`; test accuracy 1.000, baseline 0.333 |
+| Test suite, `uv run pytest --cov` | 148 tests and 1 deselected network test, about 87 s, 100 % line and branch coverage |
+| Quick start on synthetic shapes: 600 images, 48 px, 15 epochs | about 60 s for all six commands (48 s measured), about 90 s on the first run after a fresh `uv sync`; test accuracy 1.000, baseline 0.333 |
 | Batch-norm warm-up on the same data (7 steps per epoch) | validation accuracy exactly 0.3333 through step 28, 0.3444 at step 35, 0.9333 at step 42, 1.0000 at step 49, while training accuracy is 1.0000 throughout |
-| EuroSAT prepare: decode, letterbox, hash and write 27,000 images | 2 min 39 s; 0 skipped, 0 duplicates, 0 conflicts |
-| EuroSAT training: 20 epochs, 18,900 images, 99,450 parameters | 1,357 s (23 min), 296 steps of 64 images per epoch, 229 ms per step |
+| EuroSAT prepare: decode, letterbox, hash and write 27,000 images | 2 min 40 s; 0 skipped, 0 duplicates, 0 conflicts |
+| EuroSAT training: 20 epochs, 18,900 images, 99,450 parameters | 1,261.6 s (21 min), 296 steps of 64 images per epoch, 213 ms per step |
 | EuroSAT test split, 4,050 images | accuracy 0.9491, macro F1 0.9473, baseline 0.1111 |
 | EuroSAT weakest and strongest class by F1 | River 0.907, SeaLake 0.992 |
 
 Repeat the EuroSAT rows after any change to `model.py`, `train.py` or `data.py`, and update the
-table if a value moves by more than a quarter.
+table if a value moves by more than a quarter. The 1.1.0 re-measurement reproduced every
+per-class figure, the confusion matrix and the best validation loss exactly from the 1.0.0 run,
+which confirms across two releases that JAX on CPU is deterministic on this one machine (see
+Known limits).
 
 ## Known limits
 
