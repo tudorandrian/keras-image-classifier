@@ -8,6 +8,7 @@ Nothing here imports Keras, so preparing data is fast and testable on its own.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import random
 import re
@@ -22,6 +23,7 @@ MANIFEST = "manifest.json"
 SPLITS = "splits.json"
 SPLIT_NAMES = ("train", "val", "test")
 CLASS_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9 _.-]{0,63}")
+HEX64 = re.compile(r"[0-9a-f]{64}")
 
 
 @dataclass(frozen=True)
@@ -127,14 +129,37 @@ def read_json(path: Path, missing: str) -> dict[str, Any]:
 
 
 def load_manifest(prepared: Path) -> Manifest:
+    """Read manifest.json and check that it is one `prepare` could have written.
+
+    The manifest decides where the loader opens files. A hand-edited path such as
+    `circle/../../x.png` keeps a valid label and leaves the prepared directory, so
+    every sample must be exactly `<label>/<sha256[:16]>.png` with a label from the
+    class list, and every class name must pass the same rule as a raw directory.
+    """
     raw = read_json(prepared / MANIFEST, f"{prepared} has no {MANIFEST}; run 'kic prepare' first")
     try:
         raw["samples"] = [Sample(**sample) for sample in raw["samples"]]
-        return Manifest(**raw)
+        manifest = Manifest(**raw)
     except (KeyError, TypeError) as error:
         raise KicError(
             f"{prepared / MANIFEST} is not a usable manifest ({error!r}); run 'kic prepare' again"
         ) from None
+    for name in manifest.classes:
+        if not isinstance(name, str) or not CLASS_NAME.fullmatch(name):
+            raise KicError(f"{prepared / MANIFEST}: class name {name!r} is not allowed")
+    for sample in manifest.samples:
+        message = (
+            f"{prepared / MANIFEST} lists {sample.path!r}, which 'kic prepare' would not "
+            "have written; run 'kic prepare' again"
+        )
+        # The hex check must happen before any slicing of sha256, so a non-string value
+        # (or one too short to slice meaningfully) fails cleanly instead of raising TypeError.
+        if not isinstance(sample.sha256, str) or not HEX64.fullmatch(sample.sha256):
+            raise KicError(message)
+        expected = f"{sample.label}/{sample.sha256[:16]}.png"
+        if sample.label not in manifest.classes or sample.path != expected:
+            raise KicError(message)
+    return manifest
 
 
 def split_identity(prepared: Path) -> dict[str, Any]:
@@ -148,6 +173,57 @@ def split_identity(prepared: Path) -> dict[str, Any]:
         return {key: document[key] for key in ("version", "seed", "ratios")}
     except KeyError as error:
         raise KicError(f"{prepared / SPLITS} has no {error} field; run 'kic split' again") from None
+
+
+def load_splits(prepared: Path) -> tuple[Manifest, dict[str, list[Sample]]]:
+    """Read splits.json as three lists of manifest samples, or say what is wrong with it.
+
+    splits.json is a plain list of paths the user can edit. Two things must hold before
+    a run can trust it: every entry names a sample the manifest knows, and no entry
+    appears twice, in one split or across two. The second rule is what keeps a test
+    score honest; `split_identity` alone cannot see a test list refilled from train.
+    """
+    manifest = load_manifest(prepared)
+    document = read_json(prepared / SPLITS, f"{prepared} has no {SPLITS}; run 'kic split' first")
+    by_path = {sample.path: sample for sample in manifest.samples}
+    seen: dict[str, str] = {}
+    splits: dict[str, list[Sample]] = {}
+    for name in SPLIT_NAMES:
+        entries = document.get(name)
+        if not isinstance(entries, list) or not all(isinstance(e, str) for e in entries):
+            raise KicError(
+                f"{prepared / SPLITS} does not list usable paths for the {name!r} split; "
+                "run 'kic split' again"
+            )
+        members = []
+        for entry in entries:
+            if entry not in by_path:
+                raise KicError(
+                    f"{prepared / SPLITS} lists {entry!r} in the {name!r} split, which is not "
+                    f"in {MANIFEST}; run 'kic split' again"
+                )
+            if entry in seen:
+                raise KicError(
+                    f"{prepared / SPLITS} lists {entry!r} twice ({seen[entry]} and {name}); "
+                    "run 'kic split' again"
+                )
+            seen[entry] = name
+            members.append(by_path[entry])
+        splits[name] = members
+    return manifest, splits
+
+
+def split_digest(prepared: Path) -> str:
+    """SHA-256 over the content hashes of all three splits, in order.
+
+    `train` records it and `evaluate` compares it, so a run is tied to the exact
+    images it saw, not only to the seed and ratios that were meant to produce them.
+    """
+    _, splits = load_splits(prepared)
+    text = json.dumps(
+        {name: [s.sha256 for s in splits[name]] for name in SPLIT_NAMES}, separators=(",", ":")
+    )
+    return hashlib.sha256(text.encode()).hexdigest()
 
 
 def split(
@@ -181,19 +257,9 @@ def split(
     return result
 
 
-def load_split(prepared: Path, name: str) -> tuple[list[str], list[int], list[str]]:
-    """Return (paths, integer labels, class names) for one split."""
-    manifest = load_manifest(prepared)
-    document = read_json(prepared / SPLITS, f"{prepared} has no {SPLITS}; run 'kic split' first")
+def load_split(prepared: Path, name: str) -> tuple[list[Sample], list[str]]:
+    """Return (samples of one split, class names), after `load_splits` has checked the file."""
     if name not in SPLIT_NAMES:
         raise KicError(f"unknown split {name!r}; choose from {', '.join(SPLIT_NAMES)}")
-    index = {label: i for i, label in enumerate(manifest.classes)}
-    try:
-        paths: list[str] = document[name]
-        labels = [index[path.split("/", 1)[0]] for path in paths]
-    except (KeyError, AttributeError, TypeError) as error:
-        raise KicError(
-            f"{prepared / SPLITS} does not list usable paths for the {name!r} split "
-            f"({error!r}); run 'kic split' again"
-        ) from None
-    return paths, labels, manifest.classes
+    manifest, splits = load_splits(prepared)
+    return splits[name], manifest.classes

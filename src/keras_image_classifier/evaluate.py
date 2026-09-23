@@ -31,7 +31,10 @@ def evaluate(run_dir: Path, *, split: str = "test", batch_size: int = 128) -> di
     manifest = load_manifest(data)
     if manifest.classes != run["classes"] or manifest.image_size != run["image_size"]:
         raise KicError(f"{data} no longer matches the data this run was trained on")
-    paths, labels, classes = load_split(data, split)
+    samples, classes = load_split(data, split)
+    index = {label: i for i, label in enumerate(classes)}
+    paths = [s.path for s in samples]
+    labels = [index[s.label] for s in samples]
     if split_identity(data) != run.get("split"):
         raise KicError(
             f"the split in {data} no longer matches the split this run was trained on; "

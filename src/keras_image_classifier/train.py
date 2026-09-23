@@ -72,8 +72,13 @@ def train(config: TrainConfig) -> dict[str, Any]:
     if run_dir.exists() and any(run_dir.iterdir()):
         raise KicError(f"{run_dir} is not empty; every run gets its own directory")
     manifest = load_manifest(data)
-    train_paths, train_labels, classes = load_split(data, "train")
-    val_paths, val_labels, _ = load_split(data, "val")
+    train_samples, classes = load_split(data, "train")
+    val_samples, _ = load_split(data, "val")
+    index = {label: i for i, label in enumerate(classes)}
+    train_paths = [s.path for s in train_samples]
+    train_labels = [index[s.label] for s in train_samples]
+    val_paths = [s.path for s in val_samples]
+    val_labels = [index[s.label] for s in val_samples]
     split_info = split_identity(data)
 
     import keras

@@ -15,7 +15,9 @@ def train_split(raw: Path, tmp_path: Path) -> tuple[Path, list[str], list[int]]:
     prepared = tmp_path / "prepared"
     prepare(raw, prepared, image_size=24)
     split(prepared)
-    paths, labels, _ = load_split(prepared, "train")
+    samples, classes = load_split(prepared, "train")
+    paths = [s.path for s in samples]
+    labels = [classes.index(s.label) for s in samples]
     return prepared, paths, labels
 
 

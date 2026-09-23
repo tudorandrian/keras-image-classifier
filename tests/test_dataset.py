@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import re
 import shutil
 from pathlib import Path
 
@@ -11,11 +13,14 @@ from keras_image_classifier import KicError
 from keras_image_classifier.dataset import (
     MANIFEST,
     SPLITS,
+    Sample,
     load_manifest,
     load_split,
+    load_splits,
     prepare,
     scan_classes,
     split,
+    split_digest,
     split_identity,
 )
 
@@ -131,9 +136,9 @@ def test_split_needs_three_images_per_class(raw: Path, tmp_path: Path) -> None:
 def test_load_split_returns_labels_that_match_the_paths(raw: Path, tmp_path: Path) -> None:
     prepare(raw, tmp_path / "out", image_size=24)
     split(tmp_path / "out")
-    paths, labels, classes = load_split(tmp_path / "out", "val")
+    samples, classes = load_split(tmp_path / "out", "val")
     assert classes == ["circle", "square", "triangle"]
-    assert [classes[label] for label in labels] == [path.split("/")[0] for path in paths]
+    assert [s.label for s in samples] == [s.path.split("/")[0] for s in samples]
     document = json.loads((tmp_path / "out" / SPLITS).read_text())
     assert document["seed"] == 0
     assert document["ratios"] == [0.7, 0.15, 0.15]
@@ -234,7 +239,136 @@ def test_a_splits_file_naming_an_unknown_class_is_refused(raw: Path, tmp_path: P
     prepare(raw, tmp_path / "out", image_size=24)
     split(tmp_path / "out")
     (tmp_path / "out" / SPLITS).write_text(
-        json.dumps({"version": 1, "seed": 0, "ratios": [0.7, 0.15, 0.15], "train": ["ghost/a.png"]})
+        json.dumps(
+            {
+                "version": 1,
+                "seed": 0,
+                "ratios": [0.7, 0.15, 0.15],
+                "train": ["ghost/a.png"],
+                "val": [],
+                "test": [],
+            }
+        )
     )
-    with pytest.raises(KicError, match="does not list usable paths for the 'train' split"):
+    with pytest.raises(
+        KicError, match=re.escape("'ghost/a.png' in the 'train' split, which is not")
+    ):
         load_split(tmp_path / "out", "train")
+
+
+def _rewrite_splits(prepared: Path, **changes: object) -> None:
+    document = json.loads((prepared / SPLITS).read_text())
+    document.update(changes)
+    (prepared / SPLITS).write_text(json.dumps(document))
+
+
+def test_load_split_returns_samples_whose_labels_match_their_paths(
+    raw: Path, tmp_path: Path
+) -> None:
+    prepare(raw, tmp_path / "out", image_size=24)
+    split(tmp_path / "out")
+    samples, classes = load_split(tmp_path / "out", "val")
+    assert classes == ["circle", "square", "triangle"]
+    assert [s.label for s in samples] == [s.path.split("/")[0] for s in samples]
+    assert all(isinstance(s, Sample) for s in samples)
+
+
+def test_a_split_entry_that_is_not_in_the_manifest_is_refused(raw: Path, tmp_path: Path) -> None:
+    # A valid-looking label in front of `..` still escapes the prepared directory.
+    prepare(raw, tmp_path / "out", image_size=24)
+    split(tmp_path / "out")
+    _rewrite_splits(tmp_path / "out", val=["circle/../../outside.png"])
+    with pytest.raises(
+        KicError, match=re.escape("'circle/../../outside.png' in the 'val' split, which is not")
+    ):
+        load_split(tmp_path / "out", "val")
+
+
+def test_a_path_listed_in_two_splits_is_refused(raw: Path, tmp_path: Path) -> None:
+    # Membership tampering with seed and ratios left intact: the case `split_identity`
+    # cannot see. Scoring training images as if held out must not be possible.
+    prepare(raw, tmp_path / "out", image_size=24)
+    split(tmp_path / "out")
+    document = json.loads((tmp_path / "out" / SPLITS).read_text())
+    _rewrite_splits(tmp_path / "out", test=document["train"][:3])
+    with pytest.raises(KicError, match="twice \\(train and test\\)"):
+        load_split(tmp_path / "out", "test")
+
+
+def test_a_path_repeated_inside_one_split_is_refused(raw: Path, tmp_path: Path) -> None:
+    prepare(raw, tmp_path / "out", image_size=24)
+    split(tmp_path / "out")
+    document = json.loads((tmp_path / "out" / SPLITS).read_text())
+    _rewrite_splits(tmp_path / "out", val=document["val"] + document["val"][:1])
+    with pytest.raises(KicError, match="twice \\(val and val\\)"):
+        load_split(tmp_path / "out", "val")
+
+
+@pytest.mark.parametrize(
+    "edit",
+    [
+        {"path": "circle/../../x.png"},
+        {"path": "circle/0000000000000000.png"},
+        {"label": "ghost"},
+        {"sha256": "0" * 63},
+        {"sha256": 12345},
+    ],
+)
+def test_a_manifest_sample_prepare_would_not_have_written_is_refused(
+    raw: Path, tmp_path: Path, edit: dict[str, object]
+) -> None:
+    prepare(raw, tmp_path / "out", image_size=24)
+    document = json.loads((tmp_path / "out" / MANIFEST).read_text())
+    document["samples"][0].update(edit)
+    (tmp_path / "out" / MANIFEST).write_text(json.dumps(document))
+    with pytest.raises(KicError, match="would not have written"):
+        load_manifest(tmp_path / "out")
+
+
+@pytest.mark.parametrize("bad_name", ["..", 7])
+def test_a_manifest_class_name_that_is_not_allowed_is_refused(
+    raw: Path, tmp_path: Path, bad_name: object
+) -> None:
+    # A class named `..` would put every path of that class outside the directory.
+    # A class name that is not even a string is just as unusable.
+    prepare(raw, tmp_path / "out", image_size=24)
+    document = json.loads((tmp_path / "out" / MANIFEST).read_text())
+    document["classes"][0] = bad_name
+    if bad_name == "..":
+        for sample in document["samples"]:
+            if sample["label"] == "circle":
+                sample["label"] = ".."
+                sample["path"] = "../" + sample["path"].split("/", 1)[1]
+    (tmp_path / "out" / MANIFEST).write_text(json.dumps(document))
+    with pytest.raises(KicError, match=re.escape(f"class name {bad_name!r} is not allowed")):
+        load_manifest(tmp_path / "out")
+
+
+def test_split_digest_is_the_hash_of_the_members_in_order(raw: Path, tmp_path: Path) -> None:
+    prepare(raw, tmp_path / "out", image_size=24)
+    split(tmp_path / "out")
+    _, splits = load_splits(tmp_path / "out")
+    expected = hashlib.sha256(
+        json.dumps(
+            {name: [s.sha256 for s in splits[name]] for name in ("train", "val", "test")},
+            separators=(",", ":"),
+        ).encode()
+    ).hexdigest()
+    assert split_digest(tmp_path / "out") == expected
+    assert len(expected) == 64
+
+
+def test_split_digest_changes_with_the_seed_and_not_with_file_names(
+    raw: Path, tmp_path: Path
+) -> None:
+    prepare(raw, tmp_path / "out", image_size=24)
+    split(tmp_path / "out", seed=0)
+    first = split_digest(tmp_path / "out")
+    split(tmp_path / "out", seed=1)
+    assert split_digest(tmp_path / "out") != first
+    for file in (raw / "circle").iterdir():
+        file.rename(file.with_name("renamed_" + file.name))
+    shutil.rmtree(tmp_path / "out")
+    prepare(raw, tmp_path / "out", image_size=24)
+    split(tmp_path / "out", seed=0)
+    assert split_digest(tmp_path / "out") == first
