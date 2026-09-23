@@ -24,7 +24,8 @@ RUN_FILE = "run.json"
 HISTORY_FILE = "history.csv"
 
 # Decoded uint8 images kept in memory for train plus val. Above this the loader decodes
-# every epoch instead; slower, but a large set then costs time, not the machine.
+# every epoch instead; slower, but a large set then costs time, not the machine. evaluate.py
+# applies the same budget to the split it scores.
 CACHE_BUDGET_BYTES = 2 * 1024**3
 
 

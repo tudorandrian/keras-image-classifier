@@ -381,10 +381,27 @@ def test_predict_still_works_with_a_run_from_an_earlier_version(
 def test_evaluate_scores_correctly_with_the_cache_turned_off(
     trained: dict[str, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Below CACHE_BUDGET_BYTES evaluate caches like train; above it, it must still score
+    correctly, and this pins that the cache really was off, not just that the score matched
+    by coincidence."""
     baseline = evaluate(trained["run"])
+
+    created: list[ImageBatches] = []
+
+    class RecordingBatches(ImageBatches):
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            super().__init__(*args, **kwargs)
+            created.append(self)
+
+    monkeypatch.setattr("keras_image_classifier.data.ImageBatches", RecordingBatches)
     monkeypatch.setattr("keras_image_classifier.evaluate.CACHE_BUDGET_BYTES", 1)
     result = evaluate(trained["run"])
+
+    assert len(created) == 1
+    assert created[0].keep is False  # the ImageBatches evaluate built had cache=False
+    assert created[0].cache == {}  # and nothing was ever stashed in its (unused) cache dict
     assert result["accuracy"] == baseline["accuracy"]
+    assert result["confusion_matrix"] == baseline["confusion_matrix"]
 
 
 def test_the_cache_is_switched_off_above_the_budget(
