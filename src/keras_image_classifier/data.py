@@ -10,13 +10,23 @@ import numpy as np
 from numpy.typing import NDArray
 from PIL import Image
 
+from keras_image_classifier import KicError
+from keras_image_classifier.dataset import MANIFEST
+from keras_image_classifier.images import pixel_hash
+
 
 class ImageBatches(keras.utils.PyDataset):  # type: ignore[misc]
     """Batches of (pixels 0-255 as float32, integer labels).
 
-    Decoded images stay in memory after first use. A prepared data set is small
-    (27,000 images of 64 px are 330 MB), and decoding PNG files again every epoch
-    would otherwise dominate CPU training time.
+    Decoded images stay in memory after first use when `cache` is on. A prepared data
+    set is small (27,000 images of 64 px are 332 MB), and decoding PNG files again
+    every epoch would otherwise dominate CPU training time. `train` turns the cache off
+    above a budget instead of letting a large set exhaust memory.
+
+    With `digests`, every decoded image is compared with the SHA-256 recorded by
+    `kic prepare`, so a file changed after preparation is refused rather than learned.
+    `verify()` does that for the whole split up front, before Keras is involved, so the
+    refusal is a KicError and not an exception from inside a training step.
     """
 
     def __init__(
@@ -29,6 +39,8 @@ class ImageBatches(keras.utils.PyDataset):  # type: ignore[misc]
         shuffle: bool,
         augment: bool = False,
         seed: int = 0,
+        digests: list[str] | None = None,
+        cache: bool = True,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
@@ -39,6 +51,8 @@ class ImageBatches(keras.utils.PyDataset):  # type: ignore[misc]
         self.shuffle = shuffle
         self.augment = augment
         self.seed = seed
+        self.digests = digests
+        self.keep = cache
         self.epoch = 0
         self.cache: dict[int, NDArray[np.uint8]] = {}
         self.order = np.arange(len(paths))
@@ -50,10 +64,31 @@ class ImageBatches(keras.utils.PyDataset):  # type: ignore[misc]
             self.order = rng.permutation(len(self.paths))
 
     def _pixels(self, index: int) -> NDArray[np.uint8]:
-        if index not in self.cache:
-            with Image.open(self.root / self.paths[index]) as image:
-                self.cache[index] = np.asarray(image.convert("RGB"), dtype=np.uint8)
-        return self.cache[index]
+        if index in self.cache:
+            return self.cache[index]
+        path = self.paths[index]
+        try:
+            with Image.open(self.root / path) as image:
+                rgb = image.convert("RGB")
+        except OSError as error:  # missing, unreadable, or not an image any more
+            raise KicError(
+                f"'{path}' in {self.root} cannot be read ({type(error).__name__}); "
+                "run 'kic prepare' again"
+            ) from None
+        if self.digests is not None and pixel_hash(rgb) != self.digests[index]:
+            raise KicError(
+                f"'{path}' in {self.root} does not match the hash recorded in "
+                f"{MANIFEST}; run 'kic prepare' again"
+            )
+        pixels = np.asarray(rgb, dtype=np.uint8)
+        if self.keep:
+            self.cache[index] = pixels
+        return pixels
+
+    def verify(self) -> None:
+        """Decode and check every image now, so a bad file stops the run before it starts."""
+        for index in range(len(self.paths)):
+            self._pixels(index)
 
     def __len__(self) -> int:
         return (len(self.paths) + self.batch_size - 1) // self.batch_size
